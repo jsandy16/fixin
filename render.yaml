@@ -1,0 +1,53 @@
+services:
+  # ---- always-on dashboard -------------------------------------------------
+  - type: web
+    name: mrv5-dashboard
+    runtime: python
+    plan: starter            # Free tier SLEEPS after 15 min idle and has no disk.
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 3600 --workers 1 --threads 4
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: MRV5_DB
+        value: /var/data/prices.db
+      - key: MRV5_RESULTS
+        value: /var/data/results.json
+      - key: MRV5_EQUITY
+        sync: false
+      - key: DHAN_CLIENT_ID
+        sync: false
+      - key: DHAN_ACCESS_TOKEN
+        sync: false
+    disk:
+      name: mrv5-data
+      mountPath: /var/data
+      sizeGB: 5
+
+  # ---- nightly data ingest + signal refresh --------------------------------
+  - type: cron
+    name: mrv5-eod
+    runtime: python
+    plan: starter
+    region: singapore
+    schedule: "10 10 * * 1-5"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m live.ingest --mode daily && python -m live.trader --mode eod
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: MRV5_DB
+        value: /var/data/prices.db
+      - key: MRV5_RESULTS
+        value: /var/data/results.json
+      - key: DHAN_CLIENT_ID
+        sync: false
+      - key: DHAN_ACCESS_TOKEN
+        sync: false
+    disk:
+      name: mrv5-data
+      mountPath: /var/data
+      sizeGB: 5

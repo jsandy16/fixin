@@ -1,0 +1,125 @@
+"""Live/paper portfolio state: open positions with live marks, and the realised
+equity curve of trades actually taken (as opposed to backtested)."""
+import os, sys, datetime
+import pandas as pd, numpy as np
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from mrv5 import config as C, engine
+from live import db, state
+
+def _last_close(sym):
+    d = db.load(sym)
+    if d is None or len(d) == 0: return None, None
+    return float(d.Close.iloc[-1]), str(d.index[-1].date())
+
+def open_positions():
+    """Open book with live marks and the current signal state of each holding."""
+    rows = []
+    for p in state.open_positions():
+        s = p['symbol']
+        px, asof = _last_close(s)
+        d = db.load(s)
+        rsi2 = smaX = trend = None
+        exit_flag, exit_reason = False, None
+        if d is not None and len(d) > C.TREND_SMA:
+            pr = engine.prep(d)
+            if pr is not None:
+                last = pr.iloc[-1]
+                rsi2 = float(last.rsi2); smaX = float(last.smaX)
+                trend = bool(last.Close > last.smaT)
+                age = (datetime.date.today() - datetime.date.fromisoformat(p['entry_date'])).days
+                if rsi2 > C.EXIT_ABOVE:            exit_flag, exit_reason = True, 'RSI2 > %.0f' % C.EXIT_ABOVE
+                elif last.Close > last.smaX:       exit_flag, exit_reason = True, 'close > SMA5'
+                elif age >= C.MAX_HOLD_DAYS:       exit_flag, exit_reason = True, 'time stop %dd' % C.MAX_HOLD_DAYS
+        ep = float(p['entry_px']); qty = int(p['qty'])
+        age = (datetime.date.today() - datetime.date.fromisoformat(p['entry_date'])).days
+        chg = ((px-ep)/ep*100) if px else None
+        rows.append(dict(symbol=s, qty=qty, entry_px=round(ep, 2),
+            entry_date=p['entry_date'], days_held=age,
+            last_px=round(px, 2) if px else None, as_of=asof,
+            pct_change=round(chg, 2) if chg is not None else None,
+            unrealised=round(qty*(px-ep), 0) if px else None,
+            cost=round(qty*ep, 0), value=round(qty*px, 0) if px else None,
+            rsi2=round(rsi2, 1) if rsi2 is not None else None,
+            sma5=round(smaX, 2) if smaX is not None else None,
+            above_trend=trend, exit_signal=exit_flag, exit_reason=exit_reason,
+            days_to_timestop=max(C.MAX_HOLD_DAYS-age, 0)))
+    return sorted(rows, key=lambda x: -(x['pct_change'] or -999))
+
+def new_signals(limit=25):
+    """Today's fresh entry candidates, deepest RSI(2) first."""
+    held = {p['symbol'] for p in state.open_positions()}
+    out = []
+    for s in db.symbols():
+        if s in held or ' ' in s: continue
+        d = db.load(s)
+        if d is None or len(d) < C.MIN_HISTORY: continue
+        pr = engine.prep(d)
+        if pr is None or not bool(pr.iloc[-1].signal): continue
+        last = pr.iloc[-1]
+        out.append(dict(symbol=s, rsi2=round(float(last.rsi2), 2),
+            close=round(float(last.Close), 2), as_of=str(pr.index[-1].date()),
+            sma200=round(float(last.smaT), 2),
+            pct_above_trend=round(float((last.Close/last.smaT-1)*100), 2)))
+    out.sort(key=lambda x: x['rsi2'])
+    free = C.SLOTS - len(held)
+    for i, o in enumerate(out): o['would_take'] = i < max(free, 0)
+    return out[:limit], free
+
+def realised_trades():
+    """Trades actually executed, reconstructed from the journal."""
+    c = state.conn()
+    j = pd.read_sql_query("SELECT * FROM journal WHERE kind IN ('ENTRY','EXIT') ORDER BY ts", c)
+    c.close()
+    if len(j) == 0: return pd.DataFrame()
+    trades, open_ = [], {}
+    for _, r in j.iterrows():
+        if r['kind'] == 'ENTRY':
+            open_[r['symbol']] = r
+        elif r['kind'] == 'EXIT' and r['symbol'] in open_:
+            e = open_.pop(r['symbol'])
+            qty = int(e['qty'] or 0); ep = float(e['price'] or 0); xp = float(r['price'] or 0)
+            if not (qty and ep): continue
+            ed = pd.Timestamp(e['ts']); xd = pd.Timestamp(r['ts'])
+            trades.append(dict(symbol=r['symbol'], entry_dt=ed, exit_dt=xd,
+                entry_px=ep, exit_px=xp, qty=qty, notional=qty*ep,
+                pnl=qty*(xp-ep) - qty*ep*C.COST_ROUNDTRIP,
+                ret=(xp-ep)/ep*100 - C.COST_ROUNDTRIP*100,
+                hold=max((xd-ed).days, 0), typ=r['note'] or 'exit'))
+    return pd.DataFrame(trades)
+
+def portfolio_state(capital=None):
+    """Everything the Portfolio tab needs."""
+    capital = capital or float(os.environ.get('MRV5_EQUITY', C.CAPITAL))
+    pos = open_positions()
+    T = realised_trades()
+    realised = float(T.pnl.sum()) if len(T) else 0.0
+    unreal = float(sum(p['unrealised'] or 0 for p in pos))
+    deployed = float(sum(p['cost'] or 0 for p in pos))
+    equity = capital + realised + unreal
+    curve = []
+    if len(T):
+        t = T.sort_values('exit_dt')
+        cum = capital
+        for _, r in t.iterrows():
+            cum += r.pnl
+            curve.append([str(pd.Timestamp(r.exit_dt).date()), round(cum)])
+    return dict(
+        capital=round(capital), equity=round(equity),
+        realised=round(realised), unrealised=round(unreal),
+        deployed=round(deployed), cash=round(capital+realised-deployed),
+        utilisation=round(deployed/max(equity, 1)*100, 1),
+        open_count=len(pos), slots=C.SLOTS, free_slots=max(C.SLOTS-len(pos), 0),
+        total_return=round((equity/capital-1)*100, 2),
+        closed_trades=len(T),
+        win_rate=round(float((T.pnl > 0).mean()*100), 1) if len(T) else None,
+        avg_return=round(float(T.ret.mean()), 2) if len(T) else None,
+        avg_pnl=round(float(T.pnl.mean())) if len(T) else None,
+        best=round(float(T.ret.max()), 2) if len(T) else None,
+        worst=round(float(T.ret.min()), 2) if len(T) else None,
+        avg_hold=round(float(T.hold.mean()), 1) if len(T) else None,
+        profit_factor=round(float(T.pnl[T.pnl > 0].sum()/abs(T.pnl[T.pnl <= 0].sum())), 3)
+            if len(T) and (T.pnl <= 0).any() else None,
+        curve=curve, positions=pos,
+        trades=[[r.symbol, str(pd.Timestamp(r.entry_dt).date()), str(pd.Timestamp(r.exit_dt).date()),
+                 round(r.entry_px, 2), round(r.exit_px, 2), int(r.qty), round(r.pnl),
+                 round(r.ret, 2), int(r.hold), r.typ] for r in T.itertuples()] if len(T) else [])

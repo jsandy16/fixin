@@ -1,0 +1,242 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MR-v5 — Live Dashboard</title>
+<style>
+:root{--bg:#131722;--panel:#1B2230;--p2:#161C28;--line:#2A3242;--txt:#D1D4DC;--dim:#787B86;
+--up:#26A69A;--dn:#EF5350;--acc:#2962FF;--wn:#F0A93B;--m:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:var(--m);font-size:12px;line-height:1.55}
+.wrap{max-width:1240px;margin:0 auto;padding:0 16px 70px}
+header{padding:20px 0 12px;border-bottom:1px solid var(--line);display:flex;
+justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px}
+h1{font-size:19px;font-weight:600}
+.kick{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.stamp{font-size:10.5px;color:var(--dim);text-align:right}
+nav{display:flex;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:20;overflow-x:auto}
+nav button{font-family:var(--m);font-size:12px;background:none;border:0;color:var(--dim);
+padding:13px 18px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+nav button:hover{color:var(--txt)}
+nav button[aria-selected=true]{color:var(--txt);border-bottom-color:var(--acc)}
+nav button:focus-visible{outline:1px solid var(--acc);outline-offset:-2px}
+main>section{display:none;padding-top:18px}main>section.on{display:block}
+h2{font-size:13px;font-weight:600;margin:22px 0 8px}h2:first-child{margin-top:0}
+h3{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:18px 0 7px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);margin:12px 0}
+.grid>div{background:var(--panel);padding:11px 13px}
+.grid .l{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.grid .v{font-size:18px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}
+.grid .s{font-size:10px;color:var(--dim);margin-top:2px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;margin:8px 0}
+th{text-align:right;font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);
+padding:7px 8px;border-bottom:1px solid var(--line);background:var(--p2);position:sticky;top:43px}
+th:first-child{text-align:left}
+td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right}
+td:first-child{text-align:left}
+tbody tr:hover{background:var(--p2)}
+.up{color:var(--up)}.dn{color:var(--dn)}.wn{color:var(--wn)}.dim{color:var(--dim)}
+figure{background:var(--panel);border:1px solid var(--line);padding:13px;margin:10px 0}
+figcaption{color:var(--dim);font-size:10.5px;margin-top:8px}
+svg{display:block;width:100%;height:auto}
+.pill{display:inline-block;font-size:9.5px;padding:2px 7px;border:1px solid;border-radius:2px;letter-spacing:.05em}
+.pill.ex{color:var(--wn);border-color:var(--wn)}
+.pill.hold{color:var(--dim);border-color:var(--line)}
+.pill.take{color:var(--up);border-color:var(--up)}
+.heat td{font-size:10px;padding:4px 4px;text-align:center}
+.heat td:first-child{text-align:right;font-weight:600}
+.seg{display:inline-flex;border:1px solid var(--line);margin:6px 0 10px}
+.seg button{background:none;border:0;color:var(--dim);font-family:var(--m);font-size:11px;padding:7px 15px;cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--p2);color:var(--txt)}
+.empty{background:var(--panel);border:1px solid var(--line);border-left:2px solid var(--wn);padding:16px 18px;margin:14px 0}
+.empty b{color:var(--wn)}
+code{background:#0D1117;padding:1px 6px;font-size:11px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:820px){.two{grid-template-columns:1fr}.heat td{font-size:8.5px;padding:3px 1px}}
+.spin{color:var(--dim);padding:24px 0}
+</style></head><body>
+<div class="wrap">
+<header>
+<div><div class="kick">MR-v5 mean reversion · NSE daily</div><h1>Live Dashboard</h1></div>
+<div class="stamp" id="stamp">loading…</div>
+</header>
+<nav role="tablist">
+<button role="tab" aria-selected="true" data-t="an">Analytics</button>
+<button role="tab" aria-selected="false" data-t="po">Positions</button>
+<button role="tab" aria-selected="false" data-t="pf">Portfolio</button>
+</nav>
+<main>
+<section id="an" class="on"><div id="anBody" class="spin">loading analytics…</div></section>
+<section id="po"><div id="poBody" class="spin">loading positions…</div></section>
+<section id="pf"><div id="pfBody" class="spin">loading portfolio…</div></section>
+</main>
+</div>
+<script>
+const R=n=>n==null?'—':(n<0?'−':'')+'₹'+Math.abs(Math.round(n)).toLocaleString('en-IN');
+const P=(n,d=2)=>n==null?'—':(n>=0?'':'−')+Math.abs(n).toFixed(d)+'%';
+const N=(n,d=2)=>n==null?'—':Number(n).toFixed(d);
+const C=n=>n==null?'':(n>=0?'up':'dn');
+const el=id=>document.getElementById(id);
+const btns=[...document.querySelectorAll('nav button')];
+btns.forEach(b=>b.onclick=()=>{btns.forEach(x=>x.setAttribute('aria-selected',x===b));
+document.querySelectorAll('main>section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.t));});
+
+function chart(H,series,fmt,logs,xs){
+ const W=1040,Pd={t:12,r:58,b:22,l:66},tr=v=>logs?Math.log(Math.max(v,1)):v;
+ const all=series.flatMap(s=>s.y).map(tr);let lo=Math.min(...all),hi=Math.max(...all);
+ const n=series[0].y.length;if(n<2)return '<div class="dim">not enough data</div>';
+ const X=i=>Pd.l+i/(n-1)*(W-Pd.l-Pd.r),Y=v=>Pd.t+(1-(tr(v)-lo)/(hi-lo||1))*(H-Pd.t-Pd.b);
+ let g='';for(let k=0;k<=4;k++){const tv=lo+(hi-lo)*k/4,v=logs?Math.exp(tv):tv;
+ g+=`<line x1="${Pd.l}" y1="${Y(v).toFixed(1)}" x2="${W-Pd.r}" y2="${Y(v).toFixed(1)}" stroke="#2A3242"/>
+ <text x="${Pd.l-8}" y="${(Y(v)+4).toFixed(1)}" text-anchor="end" font-size="10" fill="#787B86">${fmt(v)}</text>`}
+ if(xs)for(let i=0;i<n;i+=Math.max(1,Math.floor(n/8)))
+ g+=`<text x="${X(i).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="10" fill="#787B86">${String(xs[i]).slice(0,7)}</text>`;
+ series.forEach(s=>{const d=s.y.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
+ if(s.fill!==undefined)g+=`<path d="${d} L${X(n-1).toFixed(1)} ${Y(s.fill).toFixed(1)} L${X(0).toFixed(1)} ${Y(s.fill).toFixed(1)} Z" fill="rgba(239,83,80,.15)"/>`;
+ g+=`<path d="${d}" fill="none" stroke="${s.c}" stroke-width="${s.w||1.8}" ${s.dash?'stroke-dasharray="4 3"':''}/>`;
+ g+=`<text x="${W-Pd.r+5}" y="${(Y(s.y[n-1])+4).toFixed(1)}" font-size="10" fill="${s.c}">${s.l}</text>`});
+ return `<svg viewBox="0 0 ${W} ${H}">${g}</svg>`}
+
+function tbl(head,rows){return `<table><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`}
+
+/* ---------------- ANALYTICS ---------------- */
+let AN=null,anView='backtest';
+function renderAn(){
+ const d=AN[anView];
+ if(!d||d.empty){el('anBody').innerHTML=segbar()+'<div class="empty">No trades in this window.</div>';bind();return}
+ const b=d.bench||{};
+ const hero=[['Net profit',R(d.net),P(d.net_pct,1),C(d.net)],
+ ['CAGR',P(d.cagr),'monthly '+P(d.monthly),C(d.cagr)],
+ ['Sharpe',N(d.sharpe),'monthly '+N(d.sharpe_monthly),''],
+ ['Sortino',N(d.sortino),'Calmar '+N(d.calmar),''],
+ ['Max drawdown',P(d.max_dd),d.max_dd_date,'dn'],
+ ['Trades',d.trades,N(d.per_year,0)+'/yr',''],
+ ['Win rate',P(d.win_rate,1),'PF '+N(d.profit_factor),''],
+ ['Buy & hold',P(b.total,1),'β '+N(b.beta),'dim']];
+ let h=segbar()+`<div class="grid">${hero.map(([l,v,s,c])=>`<div><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join('')}</div>`;
+ const S=d.series;
+ h+=`<figure>${chart(280,[...(S.bench?[{y:S.bench,c:'#787B86',l:'B&H',dash:1,w:1.4}]:[]),{y:S.y,c:'#26A69A',l:'strategy'}],v=>(v/1e6).toFixed(1)+'m',true,S.x)}<figcaption>Equity, log scale · ${d.start} → ${d.end} (${d.years} yrs)</figcaption></figure>`;
+ h+=`<figure>${chart(150,[{y:S.dd,c:'#EF5350',l:'DD',fill:0}],v=>v.toFixed(0)+'%',false,S.x)}<figcaption>Drawdown, daily mark-to-market</figcaption></figure>`;
+ h+='<div class="two"><div><h3>Performance</h3>'+tbl(['Metric','Value'],[
+ ['Net profit',R(d.net)+' ('+P(d.net_pct,1)+')'],['Gross profit',R(d.gross_profit)],
+ ['Gross loss',R(d.gross_loss)],['Commission',R(d.commission)],['Final equity',R(d.final)],
+ ['CAGR',P(d.cagr)],['Avg monthly',P(d.monthly)],['Median monthly',P(d.monthly_med)],
+ ['Buy & hold',P(b.total,1)],['Alpha (ann.)',P(b.alpha)],['Beta',N(b.beta)],['Correlation',N(b.corr)]
+ ].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`))+'</div>';
+ h+='<div><h3>Risk</h3>'+tbl(['Metric','Value'],[
+ ['Sharpe',N(d.sharpe)],['Sortino',N(d.sortino)],['Calmar',N(d.calmar)],
+ ['Max drawdown',P(d.max_dd)],['DD recovery (days)',d.max_dd_recovery_days??'—'],
+ ['Max run-up',P(d.max_runup)],['Annual volatility',P(d.ann_vol)],
+ ['Daily skew',N(d.skew)],['Daily kurtosis',N(d.kurtosis)],
+ ['VaR 95% (daily)',P(d.var95)],['CVaR 95% (daily)',P(d.cvar95)],['Ulcer index',N(d.ulcer)]
+ ].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`))+'</div></div>';
+ h+='<div class="two"><div><h3>Trades</h3>'+tbl(['Metric','Value'],[
+ ['Total',d.trades],['Per year',N(d.per_year,0)],['Winners',d.wins],['Losers',d.losses],
+ ['Win rate',P(d.win_rate,2)],['Profit factor',N(d.profit_factor,3)],
+ ['Expectancy',R(d.expectancy)+' ('+P(d.expectancy_pct)+')'],
+ ['Avg win',R(d.avg_win)+' ('+P(d.avg_win_pct)+')'],
+ ['Avg loss',R(d.avg_loss)+' ('+P(d.avg_loss_pct)+')'],
+ ['Payoff ratio',N(d.payoff,3)],['Breakeven win rate',P(d.breakeven_win_rate,1)],
+ ['Largest win',R(d.largest_win)+' ('+P(d.largest_win_pct)+')'],
+ ['Largest loss',R(d.largest_loss)+' ('+P(d.largest_loss_pct)+')'],
+ ['Avg hold',N(d.avg_hold,1)+' d'],['Avg hold (win)',N(d.avg_hold_win,1)+' d'],
+ ['Avg hold (loss)',N(d.avg_hold_loss,1)+' d'],
+ ['Max consec wins',d.max_cons_win],['Max consec losses',d.max_cons_loss]
+ ].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`))+'</div>';
+ h+='<div><h3>Worst drawdowns</h3>'+tbl(['From','To','Depth','Days'],
+ (d.dd_episodes||[]).map(e=>`<tr><td>${e.start}</td><td>${e.end}</td><td class="dn">${e.depth}%</td><td>${e.days}</td></tr>`))
+ +'<h3>By exit type</h3>'+tbl(['Exit','N','Net P&L','Win%','Avg%','Days'],
+ (d.breakdowns.exits||[]).map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td class="${C(r[2])}">${R(r[2])}</td><td>${r[3]}%</td><td class="${C(r[4])}">${r[4]}%</td><td>${r[5]}</td></tr>`))+'</div></div>';
+ const M=d.monthly,fl=M.data.flat().filter(v=>v!=null),mx=Math.max(...fl.map(Math.abs))||1;
+ const mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+ h+='<h3>Monthly returns %</h3><table class="heat"><thead><tr><th>Year</th>'+mo.map(c=>`<th style="text-align:center">${c}</th>`).join('')+'<th>YTD</th></tr></thead><tbody>'+
+ M.data.map((row,i)=>{let y=1;row.forEach(v=>{if(v!=null)y*=(1+v/100)});y=(y-1)*100;
+ return `<tr><td>${M.years[i]}</td>`+row.map(v=>{if(v==null)return '<td class="dim">·</td>';
+ const a=Math.min(Math.abs(v)/mx,1)*.6;return `<td style="background:${v>0?`rgba(38,166,154,${a})`:`rgba(239,83,80,${a})`}">${v.toFixed(1)}</td>`}).join('')+
+ `<td class="${C(y)}">${y.toFixed(1)}</td></tr>`}).join('')+'</tbody></table>';
+ h+='<div class="two"><div><h3>By year</h3>'+tbl(['Year','N','Net P&L','Win%','Avg%'],
+ (d.breakdowns.years||[]).map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td class="${C(r[2])}">${R(r[2])}</td><td>${r[3]}%</td><td class="${C(r[4])}">${r[4]}%</td></tr>`))+'</div>';
+ h+='<div><h3>By holding period</h3>'+tbl(['Duration','N','Net P&L','Win%','Avg%'],
+ (d.breakdowns.holds||[]).map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td class="${C(r[2])}">${R(r[2])}</td><td>${r[3]}%</td><td class="${C(r[4])}">${r[4]}%</td></tr>`))+'</div></div>';
+ h+='<h3>Top 25 symbols</h3>'+tbl(['Symbol','Trades','Net P&L','Win%','Avg%'],
+ (d.breakdowns.symbols||[]).slice(0,25).map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td class="${C(r[2])}">${R(r[2])}</td><td>${r[3]}%</td><td class="${C(r[4])}">${r[4]}%</td></tr>`));
+ el('anBody').innerHTML=h;bind();
+}
+function segbar(){return `<div class="seg">
+<button data-v="backtest" aria-pressed="${anView==='backtest'}">Backtest (in-sample)</button>
+<button data-v="forward" aria-pressed="${anView==='forward'}">Forward test (out-of-sample)</button>
+<button data-v="full" aria-pressed="${anView==='full'}">Full period</button></div>
+<span class="dim" style="margin-left:10px">split ${AN.split}</span>`}
+function bind(){el('anBody').querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{anView=b.dataset.v;renderAn()})}
+
+/* ---------------- POSITIONS ---------------- */
+function renderPo(d){
+ if(d.error){el('poBody').innerHTML=`<div class="empty"><b>Not available.</b> ${d.error}</div>`;return}
+ let h=`<div class="grid">
+ <div><div class="l">Open positions</div><div class="v">${d.positions.length}</div><div class="s">${d.free_slots} slots free</div></div>
+ <div><div class="l">New signals today</div><div class="v ${d.signals.length?'up':''}">${d.signals.length}</div><div class="s">${d.signals.filter(s=>s.would_take).length} would be taken</div></div>
+ <div><div class="l">Exit signals</div><div class="v ${d.positions.filter(p=>p.exit_signal).length?'wn':''}">${d.positions.filter(p=>p.exit_signal).length}</div><div class="s">to sell next open</div></div>
+ <div><div class="l">Data as of</div><div class="v" style="font-size:14px">${d.data_as_of||'—'}</div><div class="s">${d.db_symbols||0} symbols in DB</div></div></div>`;
+ h+='<h2>Open positions</h2>';
+ if(!d.positions.length){h+='<div class="empty">No open positions. Once the live/paper trader records entries, they appear here with live marks.</div>'}
+ else{h+=tbl(['Symbol','Entry date','Days','Qty','Entry','Last','Change %','Unrealised','RSI(2)','Time stop in','Status'],
+ d.positions.map(p=>`<tr><td>${p.symbol}</td><td>${p.entry_date}</td><td>${p.days_held}</td><td>${p.qty}</td>
+ <td>${p.entry_px}</td><td>${p.last_px??'—'}</td><td class="${C(p.pct_change)}">${P(p.pct_change)}</td>
+ <td class="${C(p.unrealised)}">${R(p.unrealised)}</td><td>${p.rsi2??'—'}</td><td>${p.days_to_timestop}d</td>
+ <td>${p.exit_signal?`<span class="pill ex">EXIT · ${p.exit_reason}</span>`:'<span class="pill hold">hold</span>'}</td></tr>`))}
+ h+='<h2>New entry signals</h2>';
+ if(!d.signals.length){h+='<div class="empty">No stock currently meets the entry rule (close &gt; SMA200 and RSI(2) &lt; 5).</div>'}
+ else{h+=tbl(['Symbol','RSI(2)','Close','% above SMA200','As of','Action'],
+ d.signals.map(s=>`<tr><td>${s.symbol}</td><td class="up">${s.rsi2}</td><td>${s.close}</td>
+ <td>${P(s.pct_above_trend)}</td><td class="dim">${s.as_of}</td>
+ <td>${s.would_take?'<span class="pill take">TAKE</span>':'<span class="pill hold">no slot</span>'}</td></tr>`))}
+ h+='<p class="dim" style="margin-top:12px">Ranked by deepest RSI(2) — the cross-sectional ranking is where the edge lives. Signals are computed on the latest settled bar; orders fill at the next open.</p>';
+ el('poBody').innerHTML=h;
+}
+
+/* ---------------- PORTFOLIO ---------------- */
+function renderPf(d){
+ if(d.error){el('pfBody').innerHTML=`<div class="empty"><b>Not available.</b> ${d.error}</div>`;return}
+ let h=`<div class="grid">
+ <div><div class="l">Portfolio value</div><div class="v">${R(d.equity)}</div><div class="s">from ${R(d.capital)}</div></div>
+ <div><div class="l">Total return</div><div class="v ${C(d.total_return)}">${P(d.total_return)}</div><div class="s">realised + open</div></div>
+ <div><div class="l">Realised P&L</div><div class="v ${C(d.realised)}">${R(d.realised)}</div><div class="s">${d.closed_trades} closed</div></div>
+ <div><div class="l">Unrealised</div><div class="v ${C(d.unrealised)}">${R(d.unrealised)}</div><div class="s">${d.open_count} open</div></div>
+ <div><div class="l">Deployed</div><div class="v">${R(d.deployed)}</div><div class="s">${d.utilisation}% utilised</div></div>
+ <div><div class="l">Cash</div><div class="v">${R(d.cash)}</div><div class="s">${d.free_slots}/${d.slots} slots free</div></div>
+ <div><div class="l">Return / trade</div><div class="v ${C(d.avg_return)}">${P(d.avg_return)}</div><div class="s">${R(d.avg_pnl)} avg</div></div>
+ <div><div class="l">Win rate</div><div class="v">${d.win_rate==null?'—':d.win_rate+'%'}</div><div class="s">PF ${N(d.profit_factor)}</div></div></div>`;
+ if(d.curve&&d.curve.length>1){
+  h+=`<h2>Equity curve — trades actually taken</h2><figure>${chart(260,[{y:d.curve.map(c=>c[1]),c:'#26A69A',l:'equity'}],v=>(v/1000).toFixed(0)+'k',false,d.curve.map(c=>c[0]))}<figcaption>Realised only — steps at each closed trade. Distinct from the backtest curve on the Analytics tab.</figcaption></figure>`;
+ }else{
+  h+='<div class="empty"><b>No closed trades yet.</b> The equity curve builds as the live or paper trader closes positions. Until then the Analytics tab shows simulated results only.</div>';
+ }
+ if(d.trades&&d.trades.length){
+  h+='<h2>Trade history</h2>'+tbl(['Symbol','Entry','Exit','Entry ₹','Exit ₹','Qty','P&L','Return %','Days','Type'],
+  d.trades.slice().reverse().map(t=>`<tr><td>${t[0]}</td><td>${t[1]}</td><td>${t[2]}</td><td>${t[3]}</td><td>${t[4]}</td>
+  <td>${t[5]}</td><td class="${C(t[6])}">${R(t[6])}</td><td class="${C(t[7])}">${t[7]}%</td><td>${t[8]}</td><td class="dim">${t[9]}</td></tr>`));
+ }
+ h+=`<h2>Summary</h2>`+tbl(['Metric','Value'],[
+ ['Starting capital',R(d.capital)],['Current value',R(d.equity)],
+ ['Total return',P(d.total_return)],['Realised P&L',R(d.realised)],['Unrealised P&L',R(d.unrealised)],
+ ['Closed trades',d.closed_trades],['Open positions',d.open_count+' / '+d.slots],
+ ['Win rate',d.win_rate==null?'—':d.win_rate+'%'],['Profit factor',N(d.profit_factor)],
+ ['Avg return per trade',P(d.avg_return)],['Avg P&L per trade',R(d.avg_pnl)],
+ ['Best trade',P(d.best)],['Worst trade',P(d.worst)],['Avg hold',N(d.avg_hold,1)+' d'],
+ ['Capital deployed',R(d.deployed)+' ('+d.utilisation+'%)'],['Cash',R(d.cash)]
+ ].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`));
+ el('pfBody').innerHTML=h;
+}
+
+/* ---------------- boot ---------------- */
+async function boot(){
+ try{
+  const a=await (await fetch('/api/analytics')).json();
+  if(a.empty){el('anBody').innerHTML='<div class="empty"><b>No backtest results yet.</b><br>Run <code>python backtest.py</code> locally and deploy <code>out/results.json</code>, or POST to <code>/api/run</code>.</div>'}
+  else{AN=a;renderAn();el('stamp').innerHTML=`results generated ${a.generated}<br>${a.meta.universe||'?'} symbols · ${a.meta.start||''} → ${a.meta.end||''}`}
+ }catch(e){el('anBody').innerHTML='<div class="empty">Analytics failed to load: '+e+'</div>'}
+ fetch('/api/positions').then(r=>r.json()).then(renderPo).catch(e=>el('poBody').innerHTML='<div class="empty">'+e+'</div>');
+ fetch('/api/portfolio').then(r=>r.json()).then(renderPf).catch(e=>el('pfBody').innerHTML='<div class="empty">'+e+'</div>');
+}
+boot();
+setInterval(()=>{fetch('/api/positions').then(r=>r.json()).then(renderPo).catch(()=>{});
+fetch('/api/portfolio').then(r=>r.json()).then(renderPf).catch(()=>{})},120000);
+</script></body></html>

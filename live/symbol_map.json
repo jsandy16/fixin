@@ -1,0 +1,7 @@
+{
+  "_comment": "Optional overrides: symbol -> Dhan securityId. Always wins over the scrip master. Fill from https://images.dhan.co/api-data/api-scrip-master-detailed.csv",
+  "sbin": "3045",
+  "reliance": "2885",
+  "infy": "1594",
+  "tcs": "11536"
+}
