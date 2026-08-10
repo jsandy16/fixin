@@ -10,8 +10,10 @@ a page load on a simulation.
   GET  /api/portfolio        equity curve of trades actually taken
   POST /api/run              recompute the backtest in the background
   GET  /api/status           job state
-  POST /api/ingest           EOD refresh (token-gated) — daily bars + plan
+  POST /api/ingest           in-process EOD refresh (disabled on free — OOMs)
   GET  /api/ingest/status    ingest job state
+  POST /api/reload           re-pull DB/results from R2 (token-gated, cheap)
+  GET  /api/reload/status    reload job state
   GET  /health
 """
 import os, json, sys, subprocess, threading, datetime, traceback
@@ -24,6 +26,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, 'out')
 JOB = {'status': 'idle', 'log': [], 'started': None}
 INGEST = {'status': 'idle', 'log': [], 'started': None}
+RELOAD = {'status': 'idle', 'pulled': [], 'error': None}
 
 # free-tier persistence: pull DB/results from Cloudflare R2 on boot (no-op if unset)
 try:
@@ -161,14 +164,28 @@ def _ingest():
     except Exception as e:
         INGEST['status'] = 'error'; ilog('ERROR ' + str(e))
 
-@app.route('/api/ingest', methods=['POST'])
-def api_ingest():
+def _auth(req):
+    """True if the request carries the INGEST_TOKEN (Bearer header or ?token=)."""
     tok = os.environ.get('INGEST_TOKEN')
     if not tok:
+        return None  # not configured
+    given = req.headers.get('Authorization', '').removeprefix('Bearer ').strip() \
+            or req.args.get('token', '')
+    return given == tok
+
+@app.route('/api/ingest', methods=['POST'])
+def api_ingest():
+    # The full ingest+plan loads the universe into pandas (~hundreds of MB) and
+    # OOM-kills a 512Mi free instance. The EOD job runs in GitHub Actions instead
+    # (see .github/workflows/eod.yml), which uploads to R2, then calls /api/reload.
+    # Only allow in-process ingest where memory is not a constraint.
+    if os.environ.get('ALLOW_INPROCESS_INGEST', '').lower() not in ('1', 'yes', 'true'):
+        return jsonify(error='in-process ingest disabled (would OOM on free tier); '
+                             'the EOD job runs in GitHub Actions and calls /api/reload'), 501
+    ok = _auth(request)
+    if ok is None:
         return jsonify(error='INGEST_TOKEN not configured'), 503
-    given = request.headers.get('Authorization', '').removeprefix('Bearer ').strip() \
-            or request.args.get('token', '')
-    if given != tok:
+    if not ok:
         return jsonify(error='unauthorized'), 401
     if INGEST['status'] == 'running':
         return jsonify(error='already running'), 409
@@ -177,6 +194,36 @@ def api_ingest():
 
 @app.route('/api/ingest/status')
 def api_ingest_status(): return jsonify(**INGEST)
+
+# ------------------------------------------------ reload (pull fresh state from R2)
+def _reload():
+    """Re-download DB/results from R2 into the running instance. Cheap (file
+    copy, no pandas) so it is safe on a 512Mi free instance. Called by the
+    GitHub Actions EOD job after it uploads a refreshed DB."""
+    try:
+        RELOAD['status'] = 'running'
+        from live import r2sync
+        got = r2sync.download() if r2sync.enabled() else []
+        RELOAD['status'] = 'done'; RELOAD['pulled'] = got
+        print(f"reload pulled: {got}", flush=True)
+    except Exception as e:
+        RELOAD['status'] = 'error'; RELOAD['error'] = str(e)
+        print(f"reload error: {e}", flush=True)
+
+@app.route('/api/reload', methods=['POST'])
+def api_reload():
+    ok = _auth(request)
+    if ok is None:
+        return jsonify(error='INGEST_TOKEN not configured'), 503
+    if not ok:
+        return jsonify(error='unauthorized'), 401
+    if RELOAD['status'] == 'running':
+        return jsonify(error='already running'), 409
+    threading.Thread(target=_reload, daemon=True).start()
+    return jsonify(ok=True)
+
+@app.route('/api/reload/status')
+def api_reload_status(): return jsonify(**RELOAD)
 
 @app.route('/health')
 def health():

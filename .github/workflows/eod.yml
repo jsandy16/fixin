@@ -1,25 +1,49 @@
 name: eod-refresh
 
-# Free-tier substitute for a Render cron job: poke the dashboard's token-gated
-# /api/ingest, which ingests the day's settled bars, recomputes the plan, and
-# pushes the updated DB to Cloudflare R2. eod = plan only, never places orders.
+# Nightly EOD refresh. Runs the HEAVY job here (GitHub runners have ~7GB RAM) —
+# NOT on the 512Mi free Render instance, which OOMs on the pandas workload.
+# Flow: pull DB from R2 -> ingest settled bars -> compute plan -> push to R2 ->
+# tell the web service to reload. eod = plan only, never places orders.
 on:
   schedule:
     - cron: "10 10 * * 1-5"   # 10:10 UTC = 15:40 IST, Mon-Fri
   workflow_dispatch: {}        # allow manual runs from the Actions tab
 
 jobs:
-  ping:
+  eod:
     runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+      DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
+      MRV5_EQUITY: ${{ secrets.MRV5_EQUITY }}
+      MRV5_MAX_ORDER: ${{ secrets.MRV5_MAX_ORDER }}
+      MRV5_MAX_ORDERS: ${{ secrets.MRV5_MAX_ORDERS }}
     steps:
-      - name: Trigger EOD ingest
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Pull current DB from R2
+        run: python -m live.r2sync download
+      - name: Ingest settled bars (falls back to free mirror if Dhan fails)
+        run: python -m live.ingest --mode daily || python -m live.ingest --mode daily --source mirror
+      - name: Compute EOD plan (no orders)
+        run: python -m live.trader --mode eod || true
+      - name: Push refreshed DB to R2
+        run: python -m live.r2sync upload
+      - name: Tell the web service to reload from R2
         env:
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
           DASH_URL: https://mrv5-dashboard.onrender.com
         run: |
-          echo "Waking service + triggering ingest (cold start can take ~60s)..."
-          code=$(curl -s --max-time 180 -o /tmp/resp -w "%{http_code}" \
-            -X POST "$DASH_URL/api/ingest" \
+          code=$(curl -s --max-time 180 -o /tmp/r -w "%{http_code}" \
+            -X POST "$DASH_URL/api/reload" \
             -H "Authorization: Bearer $INGEST_TOKEN")
-          echo "HTTP $code"; cat /tmp/resp; echo
+          echo "reload HTTP $code"; cat /tmp/r; echo
           test "$code" = "200"
