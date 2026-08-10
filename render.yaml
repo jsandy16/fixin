@@ -1,5 +1,5 @@
 services:
-  # ---- always-on dashboard -------------------------------------------------
+  # ---- always-on dashboard (owns the only persistent disk) -----------------
   - type: web
     name: mrv5-dashboard
     runtime: python
@@ -16,6 +16,8 @@ services:
         value: /var/data/prices.db
       - key: MRV5_RESULTS
         value: /var/data/results.json
+      - key: INGEST_TOKEN        # gates POST /api/ingest; generated once, shared to cron
+        generateValue: true
       - key: MRV5_EQUITY
         sync: false
       - key: DHAN_CLIENT_ID
@@ -27,27 +29,33 @@ services:
       mountPath: /var/data
       sizeGB: 5
 
-  # ---- nightly data ingest + signal refresh --------------------------------
+  # ---- nightly EOD trigger --------------------------------------------------
+  # A Render disk can only attach to ONE service, so the cron does NOT touch the
+  # disk directly. It pokes the dashboard's token-gated /api/ingest, and the web
+  # service (which owns the disk) does the ingest + plan refresh. eod = plan only,
+  # never places orders.
   - type: cron
     name: mrv5-eod
     runtime: python
     plan: starter
     region: singapore
-    schedule: "10 10 * * 1-5"
-    buildCommand: pip install -r requirements.txt
-    startCommand: python -m live.ingest --mode daily && python -m live.trader --mode eod
+    schedule: "10 10 * * 1-5"   # 15:40 IST, Mon-Fri
+    buildCommand: pip install requests
+    startCommand: >-
+      python -c "import os,sys,requests;
+      u='https://'+os.environ['DASH_HOST'].rstrip('/')+'/api/ingest';
+      r=requests.post(u, headers={'Authorization':'Bearer '+os.environ['INGEST_TOKEN']}, timeout=120);
+      print(r.status_code, r.text); sys.exit(0 if r.ok else 1)"
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"
-      - key: MRV5_DB
-        value: /var/data/prices.db
-      - key: MRV5_RESULTS
-        value: /var/data/results.json
-      - key: DHAN_CLIENT_ID
-        sync: false
-      - key: DHAN_ACCESS_TOKEN
-        sync: false
-    disk:
-      name: mrv5-data
-      mountPath: /var/data
-      sizeGB: 5
+      - key: DASH_HOST
+        fromService:
+          type: web
+          name: mrv5-dashboard
+          property: host
+      - key: INGEST_TOKEN
+        fromService:
+          type: web
+          name: mrv5-dashboard
+          envVarKey: INGEST_TOKEN

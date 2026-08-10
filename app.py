@@ -10,9 +10,11 @@ a page load on a simulation.
   GET  /api/portfolio        equity curve of trades actually taken
   POST /api/run              recompute the backtest in the background
   GET  /api/status           job state
+  POST /api/ingest           EOD refresh (token-gated) — daily bars + plan
+  GET  /api/ingest/status    ingest job state
   GET  /health
 """
-import os, json, threading, datetime, traceback
+import os, json, sys, subprocess, threading, datetime, traceback
 from flask import Flask, request, jsonify, Response, send_file
 import pandas as pd
 
@@ -21,6 +23,7 @@ app = Flask(__name__)
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, 'out')
 JOB = {'status': 'idle', 'log': [], 'started': None}
+INGEST = {'status': 'idle', 'log': [], 'started': None}
 
 def log(m):
     JOB['log'] = (JOB['log'] + [f"{datetime.datetime.now():%H:%M:%S}  {m}"])[-120:]
@@ -110,6 +113,50 @@ def api_run():
 
 @app.route('/api/status')
 def api_status(): return jsonify(**JOB)
+
+# ---------------------------------------------------------------- ingest (EOD)
+def _ingest():
+    """Daily EOD refresh: append settled bars, then recompute tomorrow's plan.
+    Runs the exact steps the old cron ran. Never places orders (eod = plan only)."""
+    def ilog(m):
+        INGEST['log'] = (INGEST['log'] + [f"{datetime.datetime.now():%H:%M:%S}  {m}"])[-200:]
+        print(m, flush=True)
+    steps = [
+        [sys.executable, '-m', 'live.ingest', '--mode', 'daily'],
+        [sys.executable, '-m', 'live.trader', '--mode', 'eod'],
+    ]
+    try:
+        INGEST['status'] = 'running'; INGEST['log'] = []
+        INGEST['started'] = str(datetime.datetime.now())[:19]
+        for cmd in steps:
+            ilog('$ ' + ' '.join(cmd[2:]))
+            p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=3000)
+            for line in (p.stdout or '').splitlines()[-40:]:
+                ilog(line)
+            if p.returncode != 0:
+                for line in (p.stderr or '').splitlines()[-20:]:
+                    ilog('! ' + line)
+                raise RuntimeError(f"{cmd[3:]} exited {p.returncode}")
+        INGEST['status'] = 'done'; ilog('DONE')
+    except Exception as e:
+        INGEST['status'] = 'error'; ilog('ERROR ' + str(e))
+
+@app.route('/api/ingest', methods=['POST'])
+def api_ingest():
+    tok = os.environ.get('INGEST_TOKEN')
+    if not tok:
+        return jsonify(error='INGEST_TOKEN not configured'), 503
+    given = request.headers.get('Authorization', '').removeprefix('Bearer ').strip() \
+            or request.args.get('token', '')
+    if given != tok:
+        return jsonify(error='unauthorized'), 401
+    if INGEST['status'] == 'running':
+        return jsonify(error='already running'), 409
+    threading.Thread(target=_ingest, daemon=True).start()
+    return jsonify(ok=True)
+
+@app.route('/api/ingest/status')
+def api_ingest_status(): return jsonify(**INGEST)
 
 @app.route('/health')
 def health():
