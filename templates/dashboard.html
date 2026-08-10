@@ -12,11 +12,13 @@ justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px}
 h1{font-size:19px;font-weight:600}
 .kick{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 .stamp{font-size:10.5px;color:var(--dim);text-align:right}
-nav{display:flex;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:20;overflow-x:auto}
-nav button{font-family:var(--m);font-size:12px;background:none;border:0;color:var(--dim);
-padding:13px 18px;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
-nav button:hover{color:var(--txt)}
-nav button[aria-selected=true]{color:var(--txt);border-bottom-color:var(--acc)}
+nav{display:flex;gap:6px;border-bottom:2px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:20;overflow-x:auto;padding:6px 0 0}
+nav button{font-family:var(--m);font-size:16px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+background:none;border:0;color:var(--dim);padding:15px 28px;cursor:pointer;border-bottom:3px solid transparent;
+white-space:nowrap;border-radius:8px 8px 0 0;transition:color .15s,background .15s,border-color .15s}
+nav button:hover{color:var(--txt);background:var(--p2)}
+nav button[aria-selected=true]{color:#fff;border-bottom-color:var(--acc);
+background:linear-gradient(180deg,rgba(41,98,255,.22),rgba(41,98,255,.03))}
 nav button:focus-visible{outline:1px solid var(--acc);outline-offset:-2px}
 main>section{display:none;padding-top:18px}main>section.on{display:block}
 h2{font-size:13px;font-weight:600;margin:22px 0 8px}h2:first-child{margin-top:0}

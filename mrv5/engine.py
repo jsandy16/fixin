@@ -52,8 +52,11 @@ def breadth(M, cal, win=200):
 def simulate(cal, syms, M, hedge_mask=None, idx_ret=None, capital=None, slots=None,
              cost=None, compound=None, max_hold=None, exit_above=None,
              use_stop=None, stop_pct=None, eq_brake=None, hedge_ratio=None,
-             entry_gate=None):
-    """Returns (equity Series, trades DataFrame)."""
+             entry_gate=None, return_open=False):
+    """Returns (equity Series, trades DataFrame). If return_open=True, also
+    returns a third value: the positions still open on the last bar, as a list
+    of dicts (symbol, qty, entry_px, entry_date, notional) — used to seed the
+    live/paper book from the backtest's current holdings."""
     capital  = capital  if capital  is not None else C.CAPITAL
     slots    = slots    if slots    is not None else C.SLOTS
     cost     = cost     if cost     is not None else C.COST_ROUNDTRIP
@@ -130,4 +133,9 @@ def simulate(cal, syms, M, hedge_mask=None, idx_ret=None, capital=None, slots=No
     E = pd.Series(eq, index=pd.DatetimeIndex(cal))
     T = pd.DataFrame(trades, columns=['symbol','entry_dt','exit_dt','entry_px','exit_px',
                                       'qty','notional','pnl','ret','hold','typ'])
+    if return_open:
+        open_book = [dict(symbol=syms[j], qty=int(q), entry_px=float(ep),
+                          entry_date=str(cal[ei].date()), notional=float(nt))
+                     for j, (q, ep, ei, nt) in pos.items()]
+        return E, T, open_book
     return E, T
