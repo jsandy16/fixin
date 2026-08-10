@@ -25,9 +25,27 @@ OUT = os.path.join(ROOT, 'out')
 JOB = {'status': 'idle', 'log': [], 'started': None}
 INGEST = {'status': 'idle', 'log': [], 'started': None}
 
+# free-tier persistence: pull DB/results from Cloudflare R2 on boot (no-op if unset)
+try:
+    from live import r2sync
+    if r2sync.enabled():
+        print("r2 sync enabled — pulling state on boot", flush=True)
+        r2sync.download()
+except Exception as _e:
+    print(f"r2 boot download error: {_e}", flush=True)
+
 def log(m):
     JOB['log'] = (JOB['log'] + [f"{datetime.datetime.now():%H:%M:%S}  {m}"])[-120:]
     print(m, flush=True)
+
+def _r2_push():
+    """Persist DB/results to R2 after a write. No-op if R2 is not configured."""
+    try:
+        from live import r2sync
+        if r2sync.enabled():
+            r2sync.upload()
+    except Exception as e:
+        print(f"r2 push error: {e}", flush=True)
 
 # ---------------------------------------------------------------- analytics
 @app.route('/api/analytics')
@@ -101,6 +119,7 @@ def _run(overrides):
         dashboard.render(dashboard.build_payload(E, T, C.CAPITAL, ixs, meta), f'{OUT}/dashboard.html')
         JOB['status'] = 'done'
         log(f"DONE  CAGR {k['cagr']:.1f}%  Sharpe {k['sharpe']:.2f}  {k['trades']} trades")
+        _r2_push()
     except Exception as e:
         JOB['status'] = 'error'; log("ERROR " + str(e)); log(traceback.format_exc()[-1200:])
 
@@ -137,6 +156,7 @@ def _ingest():
                 for line in (p.stderr or '').splitlines()[-20:]:
                     ilog('! ' + line)
                 raise RuntimeError(f"{cmd[3:]} exited {p.returncode}")
+        _r2_push(); ilog('r2 push done')
         INGEST['status'] = 'done'; ilog('DONE')
     except Exception as e:
         INGEST['status'] = 'error'; ilog('ERROR ' + str(e))

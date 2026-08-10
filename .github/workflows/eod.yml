@@ -1,0 +1,25 @@
+name: eod-refresh
+
+# Free-tier substitute for a Render cron job: poke the dashboard's token-gated
+# /api/ingest, which ingests the day's settled bars, recomputes the plan, and
+# pushes the updated DB to Cloudflare R2. eod = plan only, never places orders.
+on:
+  schedule:
+    - cron: "10 10 * * 1-5"   # 10:10 UTC = 15:40 IST, Mon-Fri
+  workflow_dispatch: {}        # allow manual runs from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger EOD ingest
+        env:
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          DASH_URL: https://mrv5-dashboard.onrender.com
+        run: |
+          echo "Waking service + triggering ingest (cold start can take ~60s)..."
+          code=$(curl -s --max-time 180 -o /tmp/resp -w "%{http_code}" \
+            -X POST "$DASH_URL/api/ingest" \
+            -H "Authorization: Bearer $INGEST_TOKEN")
+          echo "HTTP $code"; cat /tmp/resp; echo
+          test "$code" = "200"
