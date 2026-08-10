@@ -238,6 +238,10 @@ def download(name):
     p = os.path.join(OUT, name)
     return send_file(p, as_attachment=True) if os.path.exists(p) else ("not found", 404)
 
+@app.route('/logo.png')
+def logo():
+    return send_file(os.path.join(ROOT, 'assets', 'logo.png'), mimetype='image/png')
+
 @app.route('/')
 def home():
     return send_file(os.path.join(ROOT, 'templates', 'dashboard.html'))

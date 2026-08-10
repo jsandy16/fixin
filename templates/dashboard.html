@@ -1,17 +1,22 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LeGiT</title>
+<title>LeGiT — Algorithmic Trading System</title>
+<link rel="icon" type="image/png" href="/logo.png">
 <style>
 :root{--bg:#131722;--panel:#1B2230;--p2:#161C28;--line:#2A3242;--txt:#D1D4DC;--dim:#787B86;
 --up:#26A69A;--dn:#EF5350;--acc:#2962FF;--wn:#F0A93B;--m:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--txt);font-family:var(--m);font-size:12px;line-height:1.55}
 .wrap{max-width:1240px;margin:0 auto;padding:0 16px 70px}
-header{padding:20px 0 12px;border-bottom:1px solid var(--line);display:flex;
-justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px}
-h1{font-size:19px;font-weight:600}
-.kick{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-.stamp{font-size:10.5px;color:var(--dim);text-align:right}
+header.hero{padding:30px 0 22px;border-bottom:1px solid var(--line);
+display:flex;flex-direction:column;align-items:center;text-align:center;gap:16px}
+header.hero .logo{width:clamp(300px,60%,600px);height:auto;border-radius:22px;
+box-shadow:0 14px 54px rgba(38,166,154,.30),0 6px 18px rgba(0,0,0,.55);
+border:1px solid rgba(255,255,255,.07)}
+header.hero .tag{font-size:clamp(13px,2.6vw,18px);font-weight:700;letter-spacing:.18em;
+text-transform:uppercase;background:linear-gradient(90deg,#26A69A 0%,#8EE27A 45%,#F0C24B 100%);
+-webkit-background-clip:text;background-clip:text;color:transparent;
+padding-bottom:2px;border-bottom:2px solid rgba(240,194,75,.35)}
 nav{display:flex;gap:6px;border-bottom:2px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:20;overflow-x:auto;padding:6px 0 0}
 nav button{font-family:var(--m);font-size:16px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
 background:none;border:0;color:var(--dim);padding:15px 28px;cursor:pointer;border-bottom:3px solid transparent;
@@ -56,8 +61,9 @@ code{background:#0D1117;padding:1px 6px;font-size:11px}
 .spin{color:var(--dim);padding:24px 0}
 </style></head><body>
 <div class="wrap">
-<header>
-<div><h1>LeGiT</h1></div>
+<header class="hero">
+<img src="/logo.png" alt="LeGiT — Algorithmic Trading System" class="logo">
+<div class="tag">Legit — An Algorithmic Trading System</div>
 </header>
 <nav role="tablist">
 <button role="tab" aria-selected="true" data-t="an">Analytics</button>
