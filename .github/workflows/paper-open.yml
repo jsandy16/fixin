@@ -1,0 +1,43 @@
+name: paper-open
+
+# 09:15 IST daily. Take yesterday's plan (persisted in live.db by eod-scan) and
+# apply it to the PAPER book: open the entry signals and close the exit signals.
+# No broker, no Dhan — book-only, so it is safe and light. Then reload the
+# dashboard so Positions/Portfolio reflect the new book.
+on:
+  schedule:
+    - cron: "45 3 * * 1-5"   # 03:45 UTC = 09:15 IST, Mon-Fri
+  workflow_dispatch: {}
+
+jobs:
+  open:
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      MRV5_EQUITY: ${{ secrets.MRV5_EQUITY }}
+      MRV5_MAX_ORDER: ${{ secrets.MRV5_MAX_ORDER }}
+      MRV5_MAX_ORDERS: ${{ secrets.MRV5_MAX_ORDERS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Pull current DB + plan from R2
+        run: python -m live.r2sync download
+      - name: Apply plan to the paper book (open entries, close exits)
+        run: python -m live.trader --mode paper
+      - name: Push updated book to R2
+        run: python -m live.r2sync upload
+      - name: Reload the dashboard
+        env:
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          DASH_URL: https://mrv5-dashboard.onrender.com
+        run: |
+          code=$(curl -s --max-time 180 -o /tmp/r -w "%{http_code}" \
+            -X POST "$DASH_URL/api/reload" -H "Authorization: Bearer $INGEST_TOKEN")
+          echo "reload HTTP $code"; cat /tmp/r; echo
+          test "$code" = "200"

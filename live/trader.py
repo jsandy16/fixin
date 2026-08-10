@@ -2,7 +2,8 @@
 """LIVE TRADER — MR-v5 daily loop on Dhan.
 
     python -m live.trader --mode eod     # after close: compute tomorrow's plan
-    python -m live.trader --mode open    # at 09:15: execute the plan
+    python -m live.trader --mode paper   # next morning: apply the plan to the PAPER book
+    python -m live.trader --mode open    # at 09:15: execute the plan (REAL orders)
     python -m live.trader --mode status  # reconcile broker vs local book
 
 SAFETY: dry-run is the DEFAULT. Live orders require BOTH:
@@ -189,6 +190,49 @@ def execute(args):
         print("\n  REMINDER: hedge regime active — place/maintain the NIFTY futures short manually.")
     print("\n  Verify fills in ~10 min:  python -m live.trader --mode status")
 
+def latest_plan():
+    """Most recent plan persisted by build_plan. Stored in live.db (synced to R2),
+    so the morning paper run can read the plan the evening scan produced even
+    though it runs in a fresh CI job."""
+    c = state.conn()
+    row = c.execute("SELECT payload FROM runs ORDER BY ts DESC LIMIT 1").fetchone()
+    c.close()
+    return json.loads(row['payload']) if row else None
+
+def paper_execute():
+    """Apply the latest plan to the LOCAL/paper book only — no broker, no Dhan.
+    Closes exit-flagged holdings and opens the day's entry signals, so the paper
+    Positions/Portfolio tabs track the strategy. Entries fill at the plan limit,
+    exits at the plan ref price. Entry date = today (the morning it is taken)."""
+    plan = latest_plan()
+    if not plan:
+        print("no plan to execute — run --mode eod first"); return
+    today = str(datetime.date.today())
+    print(f"PAPER execute — plan for {plan.get('for_session')} "
+          f"({len(plan['exits'])} exits, {len(plan['entries'])} entries)")
+
+    # exits first (frees slots, realises P&L into the journal)
+    for e in plan['exits']:
+        px = float(e.get('ref_price') or 0)
+        state.log('EXIT', e['symbol'], 'SELL', e.get('qty'), px, 'PAPER', e.get('reason'))
+        state.close_position(e['symbol'])
+        print(f"  EXIT  {e['symbol']:<16} qty {e.get('qty'):<6} @ {px:<10.2f} [{e.get('reason')}]")
+
+    # entries
+    held = {p['symbol'] for p in state.open_positions()}
+    for e in plan['entries']:
+        if e['symbol'] in held:
+            print(f"  skip  {e['symbol']} (already held)"); continue
+        px = float(e.get('limit') or e.get('ref_price') or 0)
+        qty = int(e.get('qty') or 0)
+        if qty < 1 or px <= 0:
+            continue
+        state.log('ENTRY', e['symbol'], 'BUY', qty, px, 'PAPER', f"rsi2={e.get('rsi2', 0):.1f}")
+        state.add_position(e['symbol'], qty, px, today, '', 'PAPER')
+        print(f"  ENTRY {e['symbol']:<16} qty {qty:<6} @ {px:<10.2f} rsi2 {e.get('rsi2', 0):.1f}")
+
+    print(f"paper book now: {len(state.open_positions())} open")
+
 def status(args):
     dh = Dhan(dry_run=not armed(args))
     print("LOCAL BOOK:")
@@ -211,7 +255,7 @@ def status(args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--mode', choices=['check','eod','open','status'], required=True)
+    ap.add_argument('--mode', choices=['check','eod','paper','open','status'], required=True)
     ap.add_argument('--live', action='store_true', help='send real orders (also needs MRV5_ARM=YES)')
     ap.add_argument('--source', choices=['db','dhan','mirror'], default='db')
     ap.add_argument('--paper', action='store_true', help='force paper mode (no orders)')
@@ -234,9 +278,10 @@ def main():
                 print(f"  FAILED: {e}")
                 print("  Check the token has not expired (they last 30 days).")
         return
-    if a.mode == 'eod':    show(build_plan(a.source, a.allow_stale))
-    elif a.mode == 'open': execute(a)
-    else:                  status(a)
+    if a.mode == 'eod':      show(build_plan(a.source, a.allow_stale))
+    elif a.mode == 'paper':  paper_execute()
+    elif a.mode == 'open':   execute(a)
+    else:                    status(a)
 
 if __name__ == '__main__':
     main()

@@ -1,16 +1,19 @@
-name: eod-refresh
+name: eod-scan
 
-# Nightly EOD refresh. Runs the HEAVY job here (GitHub runners have ~7GB RAM) —
-# NOT on the 512Mi free Render instance, which OOMs on the pandas workload.
-# Flow: pull DB from R2 -> ingest settled bars -> compute plan -> push to R2 ->
-# tell the web service to reload. eod = plan only, never places orders.
+# 15:14 IST daily scan. Ingest the latest bars, compute the plan (new entry
+# signals + exit signals) and persist it (into live.db -> R2), then reload the
+# dashboard so the Positions tab shows today's new entry signals.
+# Heavy pandas job — runs on the GitHub runner (~7GB), NOT the 512Mi free web
+# instance. Entries from this plan are taken the next morning by paper-open.yml.
+# NOTE: at 15:14 IST the settled daily bar is not final yet, so we try Dhan
+# provisional (intraday) first and fall back to the settled mirror bar.
 on:
   schedule:
-    - cron: "10 10 * * 1-5"   # 10:10 UTC = 15:40 IST, Mon-Fri
-  workflow_dispatch: {}        # allow manual runs from the Actions tab
+    - cron: "44 9 * * 1-5"   # 09:44 UTC = 15:14 IST, Mon-Fri
+  workflow_dispatch: {}
 
 jobs:
-  eod:
+  scan:
     runs-on: ubuntu-latest
     env:
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
@@ -27,23 +30,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install deps
-        run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt
       - name: Pull current DB from R2
         run: python -m live.r2sync download
-      - name: Ingest settled bars (falls back to free mirror if Dhan fails)
-        run: python -m live.ingest --mode daily || python -m live.ingest --mode daily --source mirror
-      - name: Compute EOD plan (no orders)
-        run: python -m live.trader --mode eod || true
-      - name: Push refreshed DB to R2
+      - name: Ingest latest bars (Dhan provisional -> settled mirror fallback)
+        run: |
+          python -m live.ingest --mode daily --provisional \
+            || python -m live.ingest --mode daily --source mirror \
+            || echo "ingest could not fetch fresh bars; scanning on latest available"
+      - name: Compute + persist the plan (entries/exits)
+        run: python -m live.trader --mode eod --allow-stale
+      - name: Push DB + plan to R2
         run: python -m live.r2sync upload
-      - name: Tell the web service to reload from R2
+      - name: Reload the dashboard (show new signals)
         env:
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
           DASH_URL: https://mrv5-dashboard.onrender.com
         run: |
           code=$(curl -s --max-time 180 -o /tmp/r -w "%{http_code}" \
-            -X POST "$DASH_URL/api/reload" \
-            -H "Authorization: Bearer $INGEST_TOKEN")
+            -X POST "$DASH_URL/api/reload" -H "Authorization: Bearer $INGEST_TOKEN")
           echo "reload HTTP $code"; cat /tmp/r; echo
           test "$code" = "200"
