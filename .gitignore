@@ -14,3 +14,5 @@ venv/
 cache/
 out/
 data/*.db
+live/plan.json
+live/scrip_master.csv
