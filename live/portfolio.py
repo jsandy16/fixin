@@ -73,10 +73,13 @@ def realised_trades():
     if len(j) == 0: return pd.DataFrame()
     trades, open_ = [], {}
     for _, r in j.iterrows():
+        # FIFO queue per symbol: a symbol can round-trip more than once, and a
+        # re-entry may be timestamped before the prior exit (open 09:15 vs close
+        # 15:30 same day), so a single-slot overwrite would drop/mispair trades.
         if r['kind'] == 'ENTRY':
-            open_[r['symbol']] = r
-        elif r['kind'] == 'EXIT' and r['symbol'] in open_:
-            e = open_.pop(r['symbol'])
+            open_.setdefault(r['symbol'], []).append(r)
+        elif r['kind'] == 'EXIT' and open_.get(r['symbol']):
+            e = open_[r['symbol']].pop(0)
             qty = int(e['qty'] or 0); ep = float(e['price'] or 0); xp = float(r['price'] or 0)
             if not (qty and ep): continue
             ed = pd.Timestamp(e['ts']); xd = pd.Timestamp(r['ts'])
