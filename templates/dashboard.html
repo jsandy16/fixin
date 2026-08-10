@@ -1,6 +1,6 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MR-v5 — Live Dashboard</title>
+<title>LeGiT</title>
 <style>
 :root{--bg:#131722;--panel:#1B2230;--p2:#161C28;--line:#2A3242;--txt:#D1D4DC;--dim:#787B86;
 --up:#26A69A;--dn:#EF5350;--acc:#2962FF;--wn:#F0A93B;--m:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
@@ -57,8 +57,7 @@ code{background:#0D1117;padding:1px 6px;font-size:11px}
 </style></head><body>
 <div class="wrap">
 <header>
-<div><div class="kick">MR-v5 mean reversion · NSE daily</div><h1>Live Dashboard</h1></div>
-<div class="stamp" id="stamp">loading…</div>
+<div><h1>LeGiT</h1></div>
 </header>
 <nav role="tablist">
 <button role="tab" aria-selected="true" data-t="an">Analytics</button>
@@ -191,6 +190,12 @@ function renderPo(d){
  <td>${P(s.pct_above_trend)}</td><td class="dim">${s.as_of}</td>
  <td>${s.would_take?'<span class="pill take">TAKE</span>':'<span class="pill hold">no slot</span>'}</td></tr>`))}
  h+='<p class="dim" style="margin-top:12px">Ranked by deepest RSI(2) — the cross-sectional ranking is where the edge lives. Signals are computed on the latest settled bar; orders fill at the next open.</p>';
+ h+='<h2>Closed trades</h2>';
+ if(!d.closed||!d.closed.length){h+='<div class="empty">No closed trades yet. Positions closed by the paper trader appear here.</div>'}
+ else{h+=`<p class="dim" style="margin-bottom:6px">${d.closed.length} closed · realised ${R((d.closed.reduce((a,t)=>a+t[6],0)))}</p>`+
+ tbl(['Symbol','Entry','Exit','Entry ₹','Exit ₹','Qty','P&L','Return %','Days','Type'],
+ d.closed.slice().reverse().map(t=>`<tr><td>${t[0]}</td><td>${t[1]}</td><td>${t[2]}</td><td>${t[3]}</td><td>${t[4]}</td>
+ <td>${t[5]}</td><td class="${C(t[6])}">${R(t[6])}</td><td class="${C(t[7])}">${t[7]}%</td><td>${t[8]}</td><td class="dim">${t[9]}</td></tr>`))}
  el('poBody').innerHTML=h;
 }
 
@@ -233,7 +238,7 @@ async function boot(){
  try{
   const a=await (await fetch('/api/analytics')).json();
   if(a.empty){el('anBody').innerHTML='<div class="empty"><b>No backtest results yet.</b><br>Run <code>python backtest.py</code> locally and deploy <code>out/results.json</code>, or POST to <code>/api/run</code>.</div>'}
-  else{AN=a;renderAn();el('stamp').innerHTML=`results generated ${a.generated}<br>${a.meta.universe||'?'} symbols · ${a.meta.start||''} → ${a.meta.end||''}`}
+  else{AN=a;renderAn()}
  }catch(e){el('anBody').innerHTML='<div class="empty">Analytics failed to load: '+e+'</div>'}
  fetch('/api/positions').then(r=>r.json()).then(renderPo).catch(e=>el('poBody').innerHTML='<div class="empty">'+e+'</div>');
  fetch('/api/portfolio').then(r=>r.json()).then(renderPf).catch(e=>el('pfBody').innerHTML='<div class="empty">'+e+'</div>');

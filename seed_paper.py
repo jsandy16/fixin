@@ -21,8 +21,9 @@ from mrv5 import config as C, data, engine
 from live import state
 
 
-def build_open_book():
-    """Reconstruct the positions the backtest is holding on the last bar."""
+def run_sim():
+    """Run the backtest and return (equity, trades, open_book, as_of_date).
+    Same setup as the dashboard's Analytics backtest and app.py:_run."""
     syms = data.build_universe(C.UNIVERSE_SIZE, C.TURNOVER_LOOKBACK)
     prepped = {}
     for s in syms:
@@ -39,7 +40,13 @@ def build_open_book():
     E, T, open_book = engine.simulate(
         cal, sy, M, hedge_mask=hedge,
         idx_ret=ixs.pct_change().fillna(0).values, return_open=True)
-    return open_book, str(cal[-1].date())
+    return E, T, open_book, str(cal[-1].date())
+
+
+def build_open_book():
+    """Reconstruct the positions the backtest is holding on the last bar."""
+    _, _, open_book, asof = run_sim()
+    return open_book, asof
 
 
 def main():

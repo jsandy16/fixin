@@ -66,12 +66,13 @@ def api_positions():
         from live import portfolio, db
         pos = portfolio.open_positions()
         sigs, free = portfolio.new_signals()
+        closed = portfolio.closed_trades_list()
         cov = db.coverage()
-        return jsonify(positions=pos, signals=sigs, free_slots=free,
+        return jsonify(positions=pos, signals=sigs, closed=closed, free_slots=free,
                        data_as_of=cov.get('mx'), db_symbols=cov.get('syms'),
                        generated=str(datetime.datetime.now())[:19])
     except Exception as e:
-        return jsonify(error=str(e), positions=[], signals=[]), 200
+        return jsonify(error=str(e), positions=[], signals=[], closed=[]), 200
 
 # ---------------------------------------------------------------- portfolio
 @app.route('/api/portfolio')

@@ -87,6 +87,17 @@ def realised_trades():
                 hold=max((xd-ed).days, 0), typ=r['note'] or 'exit'))
     return pd.DataFrame(trades)
 
+def closed_trades_list():
+    """All closed trades (realised), newest-agnostic order, as the same 10-column
+    rows the Portfolio tab uses. Powers the Positions tab's Closed Trades section."""
+    T = realised_trades()
+    if not len(T):
+        return []
+    T = T.sort_values('exit_dt')
+    return [[r.symbol, str(pd.Timestamp(r.entry_dt).date()), str(pd.Timestamp(r.exit_dt).date()),
+             round(r.entry_px, 2), round(r.exit_px, 2), int(r.qty), round(r.pnl),
+             round(r.ret, 2), int(r.hold), r.typ] for r in T.itertuples()]
+
 def portfolio_state(capital=None):
     """Everything the Portfolio tab needs."""
     capital = capital or float(os.environ.get('MRV5_EQUITY', C.CAPITAL))
