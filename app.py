@@ -226,6 +226,67 @@ def api_reload():
 @app.route('/api/reload/status')
 def api_reload_status(): return jsonify(**RELOAD)
 
+# ------------------------------------------------ admin actions (password-gated)
+def _admin_ok(req):
+    pw = os.environ.get('ADMIN_PASSWORD')
+    if not pw:
+        return None
+    given = (req.headers.get('X-Admin-Password')
+             or (req.get_json(silent=True) or {}).get('password')
+             or req.args.get('password', ''))
+    return given == pw
+
+def _dispatch_workflow(filename):
+    """Kick a GitHub Actions workflow (heavy jobs run there, not on the 512Mi web
+    instance). Needs GH_TOKEN (fine-grained PAT with Actions read/write)."""
+    import requests as _rq
+    tok = os.environ.get('GH_TOKEN')
+    repo = os.environ.get('GH_REPO', 'jsandy16/fixin')
+    if not tok:
+        return False, 'GH_TOKEN not configured on the server (add it in Render env)'
+    try:
+        r = _rq.post(
+            f'https://api.github.com/repos/{repo}/actions/workflows/{filename}/dispatches',
+            headers={'Authorization': f'Bearer {tok}', 'Accept': 'application/vnd.github+json',
+                     'X-GitHub-Api-Version': '2022-11-28'},
+            json={'ref': 'main'}, timeout=30)
+        return (True, 'started') if r.status_code == 204 else (False, f'GitHub {r.status_code}: {r.text[:180]}')
+    except Exception as e:
+        return False, str(e)[:180]
+
+@app.route('/api/trigger/<job>', methods=['POST'])
+def api_trigger(job):
+    ok = _admin_ok(request)
+    if ok is None:
+        return jsonify(error='ADMIN_PASSWORD not configured'), 503
+    if not ok:
+        return jsonify(error='wrong password'), 401
+    wf = {'backtest': 'backtest.yml', 'live': 'live-now.yml'}.get(job)
+    if not wf:
+        return jsonify(error='unknown job'), 404
+    done, msg = _dispatch_workflow(wf)
+    return jsonify(ok=done, message=msg), (200 if done else 502)
+
+@app.route('/api/paper-open', methods=['POST'])
+def api_paper_open():
+    """Apply the persisted plan to the paper book (open entries, close exits),
+    then persist to R2. Light (no pandas universe), so it is safe on free tier and
+    can be driven by an external scheduler at 09:15. Admin password OR ingest token."""
+    if not (_admin_ok(request) or _auth(request)):
+        return jsonify(error='unauthorized'), 401
+    if RELOAD['status'] == 'running':
+        return jsonify(error='reload in progress'), 409
+    def job():
+        try:
+            from live import trader
+            trader.paper_execute()
+            _r2_push()
+            print('paper-open done', flush=True)
+        except Exception as e:
+            print(f'paper-open error: {e}', flush=True)
+    threading.Thread(target=job, daemon=True).start()
+    return jsonify(ok=True)
+
 @app.route('/health')
 def health():
     from mrv5 import results

@@ -204,6 +204,28 @@ class Dhan:
         d.columns = [c.capitalize() for c in d.columns]
         return d
 
+    def ltp(self, symbols, segment='NSE_EQ'):
+        """Live last-traded price for a list of symbols -> {symbol: last_price}.
+        Uses Dhan's market-feed LTP endpoint. Needs a valid token + Data API."""
+        ids = {}
+        for s in symbols:
+            try:
+                ids[str(self.security_id(s))] = s
+            except KeyError:
+                pass
+        if not ids:
+            return {}
+        j = self._req('POST', '/marketfeed/ltp', json={segment: [int(x) for x in ids]})
+        out = {}
+        data = ((j or {}).get('data') or {}).get(segment, {}) or {}
+        for sid, info in data.items():
+            sym = ids.get(str(sid))
+            if sym and info:
+                px = info.get('last_price', info.get('ltp'))
+                if px:
+                    out[sym] = float(px)
+        return out
+
     # ---------- account ----------
     def funds(self):    return self._req('GET', '/fundlimit')
     def positions(self):return self._req('GET', '/positions') or []

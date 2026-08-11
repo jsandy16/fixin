@@ -1,6 +1,6 @@
 """Live/paper portfolio state: open positions with live marks, and the realised
 equity curve of trades actually taken (as opposed to backtested)."""
-import os, sys, datetime
+import os, sys, time, datetime
 import pandas as pd, numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mrv5 import config as C, engine
@@ -11,12 +11,42 @@ def _last_close(sym):
     if d is None or len(d) == 0: return None, None
     return float(d.Close.iloc[-1]), str(d.index[-1].date())
 
+# live-quote cache: avoid hammering Dhan on every 30s poll, and back off for
+# 5 min after a failure (e.g. expired token) so it never slows the response.
+_LTP = {'t': 0.0, 'px': {}, 'cooldown_until': 0.0}
+
+def live_quotes(symbols):
+    """Live LTP from Dhan for the given symbols, cached ~25s. Returns {} if the
+    Data API is unavailable (token expired etc.) — callers fall back to EOD."""
+    if not symbols:
+        return {}
+    now = time.time()
+    if now < _LTP['cooldown_until']:
+        return {}
+    if now - _LTP['t'] < 25 and _LTP['px']:
+        return _LTP['px']
+    try:
+        from live.dhan import Dhan
+        px = Dhan(dry_run=True).ltp(list(symbols))
+        _LTP.update(t=now, px=px, cooldown_until=0.0)
+        return px
+    except Exception as e:
+        _LTP.update(cooldown_until=now + 300, px={})
+        print(f"live quotes unavailable (falling back to EOD): {str(e)[:120]}", flush=True)
+        return {}
+
 def open_positions():
     """Open book with live marks and the current signal state of each holding."""
+    book = state.open_positions()
+    lq = live_quotes([p['symbol'] for p in book])
     rows = []
-    for p in state.open_positions():
+    for p in book:
         s = p['symbol']
         px, asof = _last_close(s)
+        lpx = lq.get(s)
+        is_live = lpx is not None
+        if is_live:
+            px, asof = lpx, 'live'
         d = db.load(s)
         rsi2 = smaX = trend = None
         exit_flag, exit_reason = False, None
@@ -42,7 +72,7 @@ def open_positions():
             rsi2=round(rsi2, 1) if rsi2 is not None else None,
             sma5=round(smaX, 2) if smaX is not None else None,
             above_trend=trend, exit_signal=exit_flag, exit_reason=exit_reason,
-            days_to_timestop=max(C.MAX_HOLD_DAYS-age, 0)))
+            days_to_timestop=max(C.MAX_HOLD_DAYS-age, 0), live=is_live))
     return sorted(rows, key=lambda x: -(x['pct_change'] or -999))
 
 def new_signals(limit=25):

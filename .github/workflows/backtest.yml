@@ -1,0 +1,34 @@
+name: backtest
+
+# Triggered by the "Run backtest" button in the app (via /api/trigger/backtest)
+# or manually. Runs the full backtest on the GitHub runner (~7GB RAM — the free
+# web instance would OOM), writes results.json, pushes to R2, reloads the app.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Pull DB from R2
+        run: python -m live.r2sync download
+      - name: Run backtest
+        run: python backtest.py
+      - name: Push results to R2
+        run: python -m live.r2sync upload
+      - name: Reload dashboard
+        env:
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: |
+          curl -s --max-time 180 -X POST https://mrv5-dashboard.onrender.com/api/reload \
+            -H "Authorization: Bearer $INGEST_TOKEN"; echo

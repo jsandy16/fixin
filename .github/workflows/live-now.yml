@@ -1,0 +1,48 @@
+name: live-now
+
+# Triggered by the "Run live trading" button in the app (via /api/trigger/live)
+# or manually. Does the whole daily loop on demand: refresh today's candle,
+# recompute the plan, and apply it to the paper book (entries + exits). Heavy
+# (pandas universe) so it runs on the GitHub runner, not the free web instance.
+# eod = plan only; paper = book-only. Never places real broker orders.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      DHAN_CLIENT_ID: ${{ secrets.DHAN_CLIENT_ID }}
+      DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
+      MRV5_EQUITY: ${{ secrets.MRV5_EQUITY }}
+      MRV5_MAX_ORDER: ${{ secrets.MRV5_MAX_ORDER }}
+      MRV5_MAX_ORDERS: ${{ secrets.MRV5_MAX_ORDERS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Pull DB from R2
+        run: python -m live.r2sync download
+      - name: Refresh today's candle (Dhan provisional -> settled mirror)
+        run: |
+          python -m live.ingest --mode daily --provisional \
+            || python -m live.ingest --mode daily --source mirror \
+            || echo "using latest available bar"
+      - name: Recompute plan
+        run: python -m live.trader --mode eod --allow-stale
+      - name: Apply plan to paper book (entries + exits)
+        run: python -m live.trader --mode paper
+      - name: Push DB to R2
+        run: python -m live.r2sync upload
+      - name: Reload dashboard
+        env:
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: |
+          curl -s --max-time 180 -X POST https://mrv5-dashboard.onrender.com/api/reload \
+            -H "Authorization: Bearer $INGEST_TOKEN"; echo

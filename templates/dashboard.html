@@ -53,6 +53,16 @@ svg{display:block;width:100%;height:auto}
 .seg{display:inline-flex;border:1px solid var(--line);margin:6px 0 10px}
 .seg button{background:none;border:0;color:var(--dim);font-family:var(--m);font-size:11px;padding:7px 15px;cursor:pointer}
 .seg button[aria-pressed=true]{background:var(--p2);color:var(--txt)}
+.toolbar{display:flex;gap:12px;align-items:center;margin:2px 0 16px;flex-wrap:wrap}
+.btn{font-family:var(--m);font-size:12.5px;font-weight:700;letter-spacing:.04em;cursor:pointer;
+border:1px solid var(--acc);background:linear-gradient(180deg,rgba(41,98,255,.28),rgba(41,98,255,.06));
+color:#fff;padding:10px 20px;border-radius:9px;text-transform:uppercase;transition:background .15s}
+.btn:hover{background:var(--acc)}
+.btn.go{border-color:var(--up);background:linear-gradient(180deg,rgba(38,166,154,.30),rgba(38,166,154,.06))}
+.btn.go:hover{background:var(--up)}
+.livedot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--up);
+box-shadow:0 0 7px var(--up);margin-right:5px;vertical-align:middle;animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .empty{background:var(--panel);border:1px solid var(--line);border-left:2px solid var(--wn);padding:16px 18px;margin:14px 0}
 .empty b{color:var(--wn)}
 code{background:#0D1117;padding:1px 6px;font-size:11px}
@@ -82,6 +92,16 @@ const P=(n,d=2)=>n==null?'—':(n>=0?'':'−')+Math.abs(n).toFixed(d)+'%';
 const N=(n,d=2)=>n==null?'—':Number(n).toFixed(d);
 const C=n=>n==null?'':(n>=0?'up':'dn');
 const el=id=>document.getElementById(id);
+async function adminAction(url,label){
+ const pw=prompt(label+' — enter admin password:');
+ if(!pw)return;
+ try{
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+  const j=await r.json();
+  if(r.ok&&j.ok){alert(`${label} started ✓\n\nRuns on GitHub (~2–4 min); the dashboard auto-refreshes when done.`);}
+  else{alert(`${label} could not start:\n${j.error||j.message||('HTTP '+r.status)}`);}
+ }catch(e){alert('Error: '+e)}
+}
 const btns=[...document.querySelectorAll('nav button')];
 btns.forEach(b=>b.onclick=()=>{btns.forEach(x=>x.setAttribute('aria-selected',x===b));
 document.querySelectorAll('main>section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.t));});
@@ -118,7 +138,8 @@ function renderAn(){
  ['Trades',d.trades,N(d.per_year,0)+'/yr',''],
  ['Win rate',P(d.win_rate,1),'PF '+N(d.profit_factor),''],
  ['Buy & hold',P(b.total,1),'β '+N(b.beta),'dim']];
- let h=segbar()+`<div class="grid">${hero.map(([l,v,s,c])=>`<div><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join('')}</div>`;
+ let h='<div class="toolbar"><button class="btn" onclick="adminAction(\'/api/trigger/backtest\',\'Backtest\')">↻ Run backtest</button><span class="dim">Recomputes the full backtest on GitHub (~2–4 min), then refreshes here.</span></div>';
+ h+=segbar()+`<div class="grid">${hero.map(([l,v,s,c])=>`<div><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join('')}</div>`;
  const S=d.series;
  h+=`<figure>${chart(280,[...(S.bench?[{y:S.bench,c:'#787B86',l:'B&H',dash:1,w:1.4}]:[]),{y:S.y,c:'#26A69A',l:'strategy'}],v=>(v/1e6).toFixed(1)+'m',true,S.x)}<figcaption>Equity, log scale · ${d.start} → ${d.end} (${d.years} yrs)</figcaption></figure>`;
  h+=`<figure>${chart(150,[{y:S.dd,c:'#EF5350',l:'DD',fill:0}],v=>v.toFixed(0)+'%',false,S.x)}<figcaption>Drawdown, daily mark-to-market</figcaption></figure>`;
@@ -177,7 +198,10 @@ function bind(){el('anBody').querySelectorAll('.seg button').forEach(b=>b.onclic
 /* ---------------- POSITIONS ---------------- */
 function renderPo(d){
  if(d.error){el('poBody').innerHTML=`<div class="empty"><b>Not available.</b> ${d.error}</div>`;return}
- let h=`<div class="grid">
+ const anyLive=d.positions.some(p=>p.live);
+ let h='<div class="toolbar"><button class="btn go" onclick="adminAction(\'/api/trigger/live\',\'Live trading\')">▶ Run live trading</button>'+
+ `<span class="dim">Refreshes today’s candle, takes new paper entries & exits (~2–4 min on GitHub). ${anyLive?'<span class="livedot"></span>live prices via Dhan · auto-refresh 30s':'prices auto-refresh every 30s'}</span></div>`;
+ h+=`<div class="grid">
  <div><div class="l">Open positions</div><div class="v">${d.positions.length}</div><div class="s">${d.free_slots} slots free</div></div>
  <div><div class="l">New signals today</div><div class="v ${d.signals.length?'up':''}">${d.signals.length}</div><div class="s">${d.signals.filter(s=>s.would_take).length} would be taken</div></div>
  <div><div class="l">Exit signals</div><div class="v ${d.positions.filter(p=>p.exit_signal).length?'wn':''}">${d.positions.filter(p=>p.exit_signal).length}</div><div class="s">to sell next open</div></div>
@@ -186,7 +210,7 @@ function renderPo(d){
  if(!d.positions.length){h+='<div class="empty">No open positions. Once the live/paper trader records entries, they appear here with live marks.</div>'}
  else{h+=tbl(['Symbol','Entry date','Days','Qty','Entry','Last','Change %','Unrealised','RSI(2)','Time stop in','Status'],
  d.positions.map(p=>`<tr><td>${p.symbol}</td><td>${p.entry_date}</td><td>${p.days_held}</td><td>${p.qty}</td>
- <td>${p.entry_px}</td><td>${p.last_px??'—'}</td><td class="${C(p.pct_change)}">${P(p.pct_change)}</td>
+ <td>${p.entry_px}</td><td>${p.live?'<span class="livedot"></span>':''}${p.last_px??'—'}</td><td class="${C(p.pct_change)}">${P(p.pct_change)}</td>
  <td class="${C(p.unrealised)}">${R(p.unrealised)}</td><td>${p.rsi2??'—'}</td><td>${p.days_to_timestop}d</td>
  <td>${p.exit_signal?`<span class="pill ex">EXIT · ${p.exit_reason}</span>`:'<span class="pill hold">hold</span>'}</td></tr>`))}
  h+='<h2>New entry signals</h2>';
@@ -250,6 +274,6 @@ async function boot(){
  fetch('/api/portfolio').then(r=>r.json()).then(renderPf).catch(e=>el('pfBody').innerHTML='<div class="empty">'+e+'</div>');
 }
 boot();
-setInterval(()=>{fetch('/api/positions').then(r=>r.json()).then(renderPo).catch(()=>{});
-fetch('/api/portfolio').then(r=>r.json()).then(renderPf).catch(()=>{})},120000);
+setInterval(()=>fetch('/api/positions').then(r=>r.json()).then(renderPo).catch(()=>{}),30000);
+setInterval(()=>fetch('/api/portfolio').then(r=>r.json()).then(renderPf).catch(()=>{}),60000);
 </script></body></html>
