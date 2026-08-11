@@ -42,6 +42,44 @@ def to_matrices(data, start=None, end=None):
         M['signal'][ii, j] = d['signal'].values
     return cal, syms, M
 
+def stream_matrices(symbols, load_prep, start=None, end=None):
+    """Memory-light to_matrices: never holds all frames at once, so the backtest
+    fits on a 512Mi host. load_prep(sym) -> a prepped DataFrame (rsi2/smaX/signal)
+    or None. Two passes (dates, then fill) — slower but bounded memory."""
+    syms = sorted(symbols)
+    s0 = pd.Timestamp(start) if start else None
+    s1 = pd.Timestamp(end) if end else None
+    dates, kept = set(), []
+    for s in syms:
+        d = load_prep(s)
+        if d is None or len(d) == 0:
+            continue
+        idx = d.index
+        if s0 is not None: idx = idx[idx >= s0]
+        if s1 is not None: idx = idx[idx <= s1]
+        if len(idx) == 0:
+            continue
+        dates.update(idx)
+        kept.append(s)
+    if not kept:
+        return [], [], {}
+    cal = sorted(dates)
+    pos = {t: i for i, t in enumerate(cal)}
+    cols = ['Open', 'High', 'Low', 'Close', 'rsi2', 'smaX']
+    M = {c: np.full((len(cal), len(kept)), np.nan) for c in cols}
+    M['signal'] = np.zeros((len(cal), len(kept)), bool)
+    for j, s in enumerate(kept):
+        d = load_prep(s)
+        if d is None or len(d) == 0:
+            continue
+        d = d[(d.index >= cal[0]) & (d.index <= cal[-1])]
+        d = d[d.index.isin(pos)]
+        ii = [pos[t] for t in d.index]
+        for c in cols:
+            M[c][ii, j] = d[c].values
+        M['signal'][ii, j] = d['signal'].values
+    return cal, kept, M
+
 def breadth(M, cal, win=200):
     """Fraction of universe above its own SMA(win). Lagged 1 day by caller."""
     Cl = pd.DataFrame(M['Close'], index=pd.DatetimeIndex(cal))

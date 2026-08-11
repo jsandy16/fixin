@@ -19,7 +19,7 @@ import pandas as pd, numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mrv5 import config as C, data, engine
-from live.dhan import Dhan
+from live.dhan import Dhan, DhanNotSubscribed, DhanAuthError
 from live import state
 
 # ---------------- risk rails ----------------
@@ -76,23 +76,49 @@ def assert_fresh(px, require=True):
     return fresh
 
 # ---------------- planning ----------------
+def _load_symbol(dh, s, source):
+    """Load one symbol's history for the plan. Streaming (one at a time) keeps
+    build_plan memory-light enough to run on the 512Mi web instance."""
+    from live import db as pricedb
+    if source == 'db':
+        d = pricedb.load(s)
+    elif source == 'dhan':
+        to = datetime.date.today(); frm = to - datetime.timedelta(days=672)
+        d = dh.daily(s, frm, to)
+    else:
+        d = data.load(s, refresh=True)
+    return d if (d is not None and len(d) >= C.MIN_HISTORY) else None
+
 def build_plan(source='db', allow_stale=False):
+    """Stream the universe one symbol at a time (no dict of all 252 frames) so
+    this fits in the free instance's memory. Same plan output as before."""
+    from live.ingest import last_trading_day
     dh = Dhan(dry_run=True)
     held = {p['symbol']: p for p in state.open_positions()}
-    print(f"open positions: {len(held)} {list(held)}")
     universe = data.build_universe(C.UNIVERSE_SIZE, C.TURNOVER_LOOKBACK)
     need = sorted(set(universe) | set(held))
-    print(f"fetching {len(need)} symbols ({source})...")
-    px = price_history(dh, need, source=source)
-    print(f"got {len(px)}")
-    if not px:
-        raise SystemExit("no price data. Run: python -m live.ingest --mode seed")
-    assert_fresh(px, require=not allow_stale)
+    print(f"open positions: {len(held)} {list(held)}")
+    print(f"scanning {len(need)} symbols ({source})...")
 
     exits, entries = [], []
-    for s, d in px.items():
+    n_above = n_have = 0
+    latest = '0000-00-00'
+    for s in need:
+        try:
+            d = _load_symbol(dh, s, source)
+        except (DhanNotSubscribed, DhanAuthError):
+            raise
+        except Exception:
+            d = None
+        if d is None:
+            continue
+        n_have += 1
+        latest = max(latest, str(d.index[-1].date()))
+        if len(d) > 200 and d.Close.iloc[-1] > d.Close.rolling(200).mean().iloc[-1]:
+            n_above += 1
         p = engine.prep(d)
-        if p is None or len(p) < 2: continue
+        if p is None or len(p) < 2:
+            continue
         last = p.iloc[-1]
         if s in held:
             age = (pd.Timestamp.today().normalize() - pd.Timestamp(held[s]['entry_date'])).days
@@ -105,15 +131,26 @@ def build_plan(source='db', allow_stale=False):
                                   ref_price=float(last.Close)))
         elif bool(last.signal):
             entries.append(dict(symbol=s, rsi2=float(last.rsi2), ref_price=float(last.Close)))
+
+    if not n_have:
+        raise SystemExit("no price data. Run: python -m live.ingest --mode seed")
+    asof = str(last_trading_day())
+    fresh = latest >= asof
+    print(f"data freshness: latest bar {latest}, last trading day {asof} -> {'OK' if fresh else 'STALE'}")
+    if not fresh and not allow_stale:
+        raise SystemExit(f"ABORT: newest bar {latest} < last trading day {asof}. "
+                         f"Run ingest, or pass --allow-stale.")
     entries.sort(key=lambda x: x['rsi2'])
 
     # regime / hedge
-    idx = (price_history(dh, [C.HEDGE_INDEX], source=source) or {}).get(C.HEDGE_INDEX)
-    if idx is None: idx = data.load(C.HEDGE_INDEX)
-    below = bool(idx.Close.iloc[-1] < idx.Close.rolling(C.HEDGE_INDEX_SMA).mean().iloc[-1])
-    n_above = sum(1 for s, d in px.items()
-                  if len(d) > 200 and d.Close.iloc[-1] > d.Close.rolling(200).mean().iloc[-1])
-    breadth = n_above / max(len(px), 1)
+    try:
+        idx = _load_symbol(dh, C.HEDGE_INDEX, source)
+    except Exception:
+        idx = None
+    if idx is None:
+        idx = data.load(C.HEDGE_INDEX)
+    below = bool(idx.Close.iloc[-1] < idx.Close.rolling(C.HEDGE_INDEX_SMA).mean().iloc[-1]) if idx is not None else False
+    breadth = n_above / max(n_have, 1)
     hedge = bool(below or breadth < C.HEDGE_BREADTH_MIN)
 
     free = MAX_POSITIONS - (len(held) - len(exits))

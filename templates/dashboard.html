@@ -138,7 +138,7 @@ function renderAn(){
  ['Trades',d.trades,N(d.per_year,0)+'/yr',''],
  ['Win rate',P(d.win_rate,1),'PF '+N(d.profit_factor),''],
  ['Buy & hold',P(b.total,1),'β '+N(b.beta),'dim']];
- let h='<div class="toolbar"><button class="btn" onclick="adminAction(\'/api/trigger/backtest\',\'Backtest\')">↻ Run backtest</button><span class="dim">Recomputes the full backtest on GitHub (~2–4 min), then refreshes here.</span></div>';
+ let h='<div class="toolbar"><button class="btn" onclick="adminAction(\'/api/trigger/backtest\',\'Backtest\')">↻ Run backtest</button><span class="dim">Recomputes the full backtest (~2–4 min); Analytics refreshes when done.</span></div>';
  h+=segbar()+`<div class="grid">${hero.map(([l,v,s,c])=>`<div><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join('')}</div>`;
  const S=d.series;
  h+=`<figure>${chart(280,[...(S.bench?[{y:S.bench,c:'#787B86',l:'B&H',dash:1,w:1.4}]:[]),{y:S.y,c:'#26A69A',l:'strategy'}],v=>(v/1e6).toFixed(1)+'m',true,S.x)}<figcaption>Equity, log scale · ${d.start} → ${d.end} (${d.years} yrs)</figcaption></figure>`;
@@ -200,7 +200,7 @@ function renderPo(d){
  if(d.error){el('poBody').innerHTML=`<div class="empty"><b>Not available.</b> ${d.error}</div>`;return}
  const anyLive=d.positions.some(p=>p.live);
  let h='<div class="toolbar"><button class="btn go" onclick="adminAction(\'/api/trigger/live\',\'Live trading\')">▶ Run live trading</button>'+
- `<span class="dim">Refreshes today’s candle, takes new paper entries & exits (~2–4 min on GitHub). ${anyLive?'<span class="livedot"></span>live prices via Dhan · auto-refresh 30s':'prices auto-refresh every 30s'}</span></div>`;
+ `<span class="dim">Recomputes the plan & applies paper entries/exits (~1–2 min); Positions refresh when done. ${anyLive?'<span class="livedot"></span>live prices via Dhan · 30s':'prices auto-refresh every 30s'}</span></div>`;
  h+=`<div class="grid">
  <div><div class="l">Open positions</div><div class="v">${d.positions.length}</div><div class="s">${d.free_slots} slots free</div></div>
  <div><div class="l">New signals today</div><div class="v ${d.signals.length?'up':''}">${d.signals.length}</div><div class="s">${d.signals.filter(s=>s.would_take).length} would be taken</div></div>

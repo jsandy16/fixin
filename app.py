@@ -96,12 +96,11 @@ def _run(overrides):
                 log(f"override {k.upper()} = {v}")
         log("building universe...")
         syms = data.build_universe(C.UNIVERSE_SIZE, C.TURNOVER_LOOKBACK)
-        prepped = {}
-        for s in syms:
-            d = engine.prep(data.load(s))
-            if d is not None: prepped[s] = d
-        log(f"{len(prepped)} symbols")
-        cal, sy, M = engine.to_matrices(prepped, C.START, C.END)
+        # stream symbols into the matrices (memory-light) so this fits on the
+        # 512Mi free instance instead of holding all 252 prepped frames at once.
+        cal, sy, M = engine.stream_matrices(
+            syms, lambda s: engine.prep(data.load(s)), C.START, C.END)
+        log(f"{len(sy)} symbols")
         idx = data.load(C.HEDGE_INDEX); ci = pd.DatetimeIndex(cal)
         ixs = idx.Close.reindex(ci).ffill().bfill()
         below = (ixs < ixs.rolling(C.HEDGE_INDEX_SMA).mean()).values
@@ -254,6 +253,25 @@ def _dispatch_workflow(filename):
     except Exception as e:
         return False, str(e)[:180]
 
+def _live_inprocess():
+    """Memory-light daily loop on the web instance: streaming plan build + paper
+    execution. No GitHub, no broker. Used when GH_TOKEN is not configured."""
+    def ilog(m):
+        INGEST['log'] = (INGEST['log'] + [f"{datetime.datetime.now():%H:%M:%S}  {m}"])[-200:]
+        print(m, flush=True)
+    try:
+        INGEST['status'] = 'running'; INGEST['log'] = []
+        INGEST['started'] = str(datetime.datetime.now())[:19]
+        from live import trader
+        ilog('building plan (streaming universe)...')
+        plan = trader.build_plan(source='db', allow_stale=True)
+        ilog(f"plan for {plan.get('for_session')}: {len(plan['exits'])} exits, {len(plan['entries'])} entries")
+        trader.paper_execute()
+        _r2_push(); ilog('r2 push done')
+        INGEST['status'] = 'done'; ilog('DONE')
+    except Exception as e:
+        INGEST['status'] = 'error'; ilog('ERROR ' + str(e))
+
 @app.route('/api/trigger/<job>', methods=['POST'])
 def api_trigger(job):
     ok = _admin_ok(request)
@@ -261,11 +279,24 @@ def api_trigger(job):
         return jsonify(error='ADMIN_PASSWORD not configured'), 503
     if not ok:
         return jsonify(error='wrong password'), 401
-    wf = {'backtest': 'backtest.yml', 'live': 'live-now.yml'}.get(job)
-    if not wf:
+    if job not in ('backtest', 'live'):
         return jsonify(error='unknown job'), 404
-    done, msg = _dispatch_workflow(wf)
-    return jsonify(ok=done, message=msg), (200 if done else 502)
+    # Prefer GitHub (more RAM, and 'live' there also refreshes today's candle) if
+    # a PAT is configured; otherwise run in-process in the background.
+    if os.environ.get('GH_TOKEN'):
+        done, msg = _dispatch_workflow({'backtest': 'backtest.yml', 'live': 'live-now.yml'}[job])
+        return jsonify(ok=done, message='GitHub — ' + msg, mode='github'), (200 if done else 502)
+    if job == 'backtest':
+        if JOB['status'] == 'running':
+            return jsonify(error='a backtest is already running'), 409
+        threading.Thread(target=_run, args=({},), daemon=True).start()
+        return jsonify(ok=True, mode='inprocess',
+                       message='Backtest started in-process (~2–4 min). Analytics refreshes when done.')
+    if INGEST['status'] == 'running':
+        return jsonify(error='a live run is already in progress'), 409
+    threading.Thread(target=_live_inprocess, daemon=True).start()
+    return jsonify(ok=True, mode='inprocess',
+                   message='Live trading started in-process (~1–2 min). Positions refresh when done.')
 
 @app.route('/api/paper-open', methods=['POST'])
 def api_paper_open():

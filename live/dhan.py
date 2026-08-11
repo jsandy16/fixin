@@ -10,7 +10,9 @@ from mrv5 import env as _env  # loads .env into os.environ
 
 
 BASE = "https://api.dhan.co/v2"
-SCRIP_MASTER = "https://images.dhan.co/api-data/api-scrip-master-detailed.csv"
+# Compact master has SEM_TRADING_SYMBOL (the real NSE ticker); the detailed one
+# only had SYMBOL_NAME (company name) which matched almost nothing.
+SCRIP_MASTER = "https://images.dhan.co/api-data/api-scrip-master.csv"
 
 class DhanNotSubscribed(RuntimeError):
     """Account lacks the Data API subscription (DH-902)."""
