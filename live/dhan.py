@@ -206,13 +206,20 @@ class Dhan:
 
     def ltp(self, symbols, segment='NSE_EQ'):
         """Live last-traded price for a list of symbols -> {symbol: last_price}.
-        Uses Dhan's market-feed LTP endpoint. Needs a valid token + Data API."""
+        Resolves security ids via the (large) scrip master — do NOT call this on
+        a memory-constrained host; use ltp_ids() with a precomputed id map."""
         ids = {}
         for s in symbols:
             try:
                 ids[str(self.security_id(s))] = s
             except KeyError:
                 pass
+        return self.ltp_ids(ids, segment)
+
+    def ltp_ids(self, id_to_symbol, segment='NSE_EQ'):
+        """LTP given a {security_id: symbol} map. Skips the scrip master entirely,
+        so it is safe on the 512Mi web instance."""
+        ids = {str(k): v for k, v in (id_to_symbol or {}).items() if k}
         if not ids:
             return {}
         j = self._req('POST', '/marketfeed/ltp', json={segment: [int(x) for x in ids]})

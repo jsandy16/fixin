@@ -14,10 +14,29 @@ def _last_close(sym):
 # live-quote cache: avoid hammering Dhan on every 30s poll, and back off for
 # 5 min after a failure (e.g. expired token) so it never slows the response.
 _LTP = {'t': 0.0, 'px': {}, 'cooldown_until': 0.0}
+_IDMAP = None
+
+def _security_ids():
+    """Small precomputed {symbol: securityId} map (universe). Loaded once. NEVER
+    downloads the multi-MB Dhan scrip master (that OOMs the free web instance)."""
+    global _IDMAP
+    if _IDMAP is None:
+        _IDMAP = {}
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        import json
+        for fn in ('security_ids.json', 'symbol_map.json'):
+            try:
+                for k, v in json.load(open(os.path.join(root, 'live', fn))).items():
+                    if not k.startswith('_') and v:
+                        _IDMAP[k.strip().lower()] = str(v)
+            except Exception:
+                pass
+    return _IDMAP
 
 def live_quotes(symbols):
     """Live LTP from Dhan for the given symbols, cached ~25s. Returns {} if the
-    Data API is unavailable (token expired etc.) — callers fall back to EOD."""
+    Data API is unavailable (token expired etc.) — callers fall back to EOD.
+    Resolves ids from the small map only; never touches the scrip master."""
     if not symbols:
         return {}
     now = time.time()
@@ -25,9 +44,13 @@ def live_quotes(symbols):
         return {}
     if now - _LTP['t'] < 25 and _LTP['px']:
         return _LTP['px']
+    idmap = _security_ids()
+    id_to_sym = {idmap[s.lower()]: s for s in symbols if s.lower() in idmap}
+    if not id_to_sym:
+        return {}
     try:
         from live.dhan import Dhan
-        px = Dhan(dry_run=True).ltp(list(symbols))
+        px = Dhan(dry_run=True).ltp_ids(id_to_sym)
         _LTP.update(t=now, px=px, cooldown_until=0.0)
         return px
     except Exception as e:
