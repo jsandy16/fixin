@@ -18,10 +18,10 @@ def main():
         raise SystemExit("no current token in R2 or env to renew — seed one first")
     if not cid:
         raise SystemExit("DHAN_CLIENT_ID not set")
-    r = requests.post('https://api.dhan.co/v2/RenewToken',
-                      headers={'access-token': cur, 'dhanClientId': cid,
-                               'client-id': cid, 'Content-Type': 'application/json',
-                               'Accept': 'application/json'}, timeout=30)
+    # RenewToken is a GET with the current token + client id in headers.
+    r = requests.get('https://api.dhan.co/v2/RenewToken',
+                     headers={'access-token': cur, 'dhanClientId': cid,
+                              'client-id': cid, 'Accept': 'application/json'}, timeout=30)
     if not r.ok:
         raise SystemExit(f"RenewToken failed {r.status_code}: {r.text[:300]}")
     j = r.json() if r.text else {}
