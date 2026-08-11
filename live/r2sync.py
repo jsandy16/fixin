@@ -90,6 +90,34 @@ def upload():
     return put
 
 
+TOKEN_KEY = "dhan_token.txt"
+
+def read_remote_token():
+    """Current Dhan access token stored in R2 (single source of truth). Returns
+    the token string, or None if unset/unavailable. Never raises."""
+    if not enabled():
+        return None
+    try:
+        obj = _client().get_object(Bucket=os.environ["R2_BUCKET"], Key=TOKEN_KEY)
+        tok = obj["Body"].read().decode().strip()
+        return tok or None
+    except Exception as e:
+        print(f"r2 token read skip: {str(e)[:120]}", flush=True)
+        return None
+
+def write_remote_token(tok):
+    """Store a new Dhan access token in R2. Returns True on success."""
+    if not enabled() or not tok:
+        return False
+    try:
+        _client().put_object(Bucket=os.environ["R2_BUCKET"], Key=TOKEN_KEY,
+                             Body=tok.strip().encode())
+        return True
+    except Exception as e:
+        print(f"r2 token write failed: {str(e)[:120]}", flush=True)
+        return False
+
+
 if __name__ == "__main__":
     import sys
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"

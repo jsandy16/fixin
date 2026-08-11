@@ -34,8 +34,25 @@ try:
     if r2sync.enabled():
         print("r2 sync enabled — pulling state on boot", flush=True)
         r2sync.download()
+        _t = r2sync.read_remote_token()
+        if _t:
+            os.environ['DHAN_ACCESS_TOKEN'] = _t
+            print("dhan token loaded from R2", flush=True)
 except Exception as _e:
     print(f"r2 boot download error: {_e}", flush=True)
+
+def _load_dhan_token():
+    """Refresh DHAN_ACCESS_TOKEN from R2 (single source of truth) and clear the
+    live-quote cooldown so prices retry immediately with the new token."""
+    try:
+        from live import r2sync, portfolio
+        t = r2sync.read_remote_token()
+        if t and t != os.environ.get('DHAN_ACCESS_TOKEN'):
+            os.environ['DHAN_ACCESS_TOKEN'] = t
+            portfolio._LTP['cooldown_until'] = 0.0
+            print("dhan token refreshed from R2", flush=True)
+    except Exception as e:
+        print(f"token refresh err: {e}", flush=True)
 
 def log(m):
     JOB['log'] = (JOB['log'] + [f"{datetime.datetime.now():%H:%M:%S}  {m}"])[-120:]
@@ -204,6 +221,7 @@ def _reload():
         RELOAD['status'] = 'running'
         from live import r2sync
         got = r2sync.download() if r2sync.enabled() else []
+        _load_dhan_token()
         RELOAD['status'] = 'done'; RELOAD['pulled'] = got
         print(f"reload pulled: {got}", flush=True)
     except Exception as e:
