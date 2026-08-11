@@ -65,7 +65,7 @@ def api_positions():
     try:
         from live import portfolio, db
         pos = portfolio.open_positions()
-        sigs, free = portfolio.new_signals()
+        sigs, free = portfolio.signals_from_plan()
         closed = portfolio.closed_trades_list()
         cov = db.coverage()
         return jsonify(positions=pos, signals=sigs, closed=closed, free_slots=free,

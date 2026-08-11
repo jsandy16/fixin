@@ -118,6 +118,31 @@ def new_signals(limit=25):
     for i, o in enumerate(out): o['would_take'] = i < max(free, 0)
     return out[:limit], free
 
+def signals_from_plan():
+    """New entry signals from the latest persisted plan (computed by the EOD /
+    live-now workflow). Light — reads one row from live.db, no universe rescan.
+    Avoids the multi-second 252-symbol recompute that overwhelmed the free web
+    instance."""
+    import json
+    held = state.open_positions()
+    free = max(C.SLOTS - len(held), 0)
+    c = state.conn()
+    row = c.execute("SELECT payload FROM runs ORDER BY ts DESC LIMIT 1").fetchone()
+    c.close()
+    if not row:
+        return [], free
+    try:
+        plan = json.loads(row['payload'])
+    except Exception:
+        return [], free
+    out = []
+    for e in plan.get('entries', []):
+        out.append(dict(symbol=e['symbol'], rsi2=round(float(e.get('rsi2', 0)), 2),
+                        close=round(float(e.get('ref_price', 0)), 2),
+                        as_of=(plan.get('generated', '') or '')[:10],
+                        sma200=None, pct_above_trend=None, would_take=True))
+    return out, free
+
 def realised_trades():
     """Trades actually executed, reconstructed from the journal."""
     c = state.conn()
