@@ -168,8 +168,10 @@ def signals_from_plan():
         return [], free
     out = []
     for e in plan.get('entries', []):
+        limit_px = round(float(e.get('limit') or e.get('ref_price') or 0), 2)
         out.append(dict(symbol=e['symbol'], rsi2=round(float(e.get('rsi2', 0)), 2),
                         close=round(float(e.get('ref_price', 0)), 2),
+                        qty=int(e.get('qty') or 0), limit_px=limit_px,
                         as_of=(plan.get('generated', '') or '')[:10],
                         sma200=None, pct_above_trend=None, would_take=True))
     return out, free

@@ -208,18 +208,19 @@ function renderPo(d){
  <div><div class="l">Data as of</div><div class="v" style="font-size:14px">${d.data_as_of||'—'}</div><div class="s">${d.db_symbols||0} symbols in DB</div></div></div>`;
  h+='<h2>Open positions</h2>';
  if(!d.positions.length){h+='<div class="empty">No open positions. Once the live/paper trader records entries, they appear here with live marks.</div>'}
- else{h+=tbl(['Symbol','Entry date','Days','Qty','Entry','Last','Change %','Unrealised','RSI(2)','Time stop in','Status'],
+ else{h+=tbl(['Symbol','Entry date','Days','Qty','Entry','Last','Change %','Unrealised','RSI(2)','Time stop in','Status','Action'],
  d.positions.map(p=>`<tr><td>${p.symbol}</td><td>${p.entry_date}</td><td>${p.days_held}</td><td>${p.qty}</td>
  <td>${p.entry_px}</td><td>${p.live?'<span class="livedot"></span>':''}${p.last_px??'—'}</td><td class="${C(p.pct_change)}">${P(p.pct_change)}</td>
  <td class="${C(p.unrealised)}">${R(p.unrealised)}</td><td>${p.rsi2??'—'}</td><td>${p.days_to_timestop}d</td>
- <td>${p.exit_signal?`<span class="pill ex">EXIT · ${p.exit_reason}</span>`:'<span class="pill hold">hold</span>'}</td></tr>`))}
+ <td>${p.exit_signal?`<span class="pill ex">EXIT · ${p.exit_reason}</span>`:'<span class="pill hold">hold</span>'}</td>
+ <td><button class="btn" onclick="manualClose('${p.symbol}',${p.last_px??p.entry_px})">Close</button></td></tr>`))}
  h+='<h2>New entry signals</h2>';
- if(!d.signals.length){h+='<div class="empty">No stock currently meets the entry rule (close &gt; SMA200 and RSI(2) &lt; 5).</div>'}
+ if(!d.signals.length){h+='<div class="empty">No stock currently meets the entry rule.</div>'}
  else{h+=tbl(['Symbol','RSI(2)','Close','% above SMA200','As of','Action'],
  d.signals.map(s=>`<tr><td>${s.symbol}</td><td class="up">${s.rsi2}</td><td>${s.close}</td>
  <td>${P(s.pct_above_trend)}</td><td class="dim">${s.as_of}</td>
- <td>${s.would_take?'<span class="pill take">TAKE</span>':'<span class="pill hold">no slot</span>'}</td></tr>`))}
- h+='<p class="dim" style="margin-top:12px">Ranked by deepest RSI(2) — the cross-sectional ranking is where the edge lives. Signals are computed on the latest settled bar; orders fill at the next open.</p>';
+ <td>${s.would_take&&s.qty>0?`<button class="btn go" onclick="manualEntry('${s.symbol}',${s.qty},${s.limit_px||s.close})">Take</button>`:'<span class="pill hold">no slot</span>'}</td></tr>`))}
+
  h+='<h2>Closed trades</h2>';
  if(!d.closed||!d.closed.length){h+='<div class="empty">No closed trades yet. Positions closed by the paper trader appear here.</div>'}
  else{h+=`<p class="dim" style="margin-bottom:6px">${d.closed.length} closed · realised ${R((d.closed.reduce((a,t)=>a+t[6],0)))}</p>`+
@@ -261,6 +262,28 @@ function renderPf(d){
  ['Capital deployed',R(d.deployed)+' ('+d.utilisation+'%)'],['Cash',R(d.cash)]
  ].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`));
  el('pfBody').innerHTML=h;
+}
+
+/* ---------------- manual trade actions ---------------- */
+async function manualClose(symbol, price){
+ const pw=prompt(`Close ${symbol} @ ₹${price} — enter admin password:`);
+ if(!pw)return;
+ try{
+  const r=await fetch('/api/manual-close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol,price,password:pw})});
+  const j=await r.json();
+  if(r.ok&&j.ok){fetch('/api/positions').then(r=>r.json()).then(renderPo).catch(()=>{});}
+  else{alert(`Close failed: ${j.error||('HTTP '+r.status)}`);}
+ }catch(e){alert('Error: '+e)}
+}
+async function manualEntry(symbol, qty, price){
+ const pw=prompt(`Enter ${symbol} · qty ${qty} @ ₹${price} — enter admin password:`);
+ if(!pw)return;
+ try{
+  const r=await fetch('/api/manual-entry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol,qty,price,password:pw})});
+  const j=await r.json();
+  if(r.ok&&j.ok){fetch('/api/positions').then(r=>r.json()).then(renderPo).catch(()=>{});}
+  else{alert(`Entry failed: ${j.error||('HTTP '+r.status)}`);}
+ }catch(e){alert('Error: '+e)}
 }
 
 /* ---------------- boot ---------------- */

@@ -336,6 +336,47 @@ def api_paper_open():
     threading.Thread(target=job, daemon=True).start()
     return jsonify(ok=True)
 
+@app.route('/api/manual-close', methods=['POST'])
+def api_manual_close():
+    """Manually close an open position and record the exit in the journal."""
+    if not _admin_ok(request):
+        return jsonify(error='unauthorized'), 401
+    data = request.get_json(silent=True) or {}
+    symbol = (data.get('symbol') or '').upper().strip()
+    price = float(data.get('price') or 0)
+    if not symbol or price <= 0:
+        return jsonify(error='symbol and price required'), 400
+    pos = [p for p in state.open_positions() if p['symbol'] == symbol]
+    if not pos:
+        return jsonify(error=f'{symbol} not in open book'), 404
+    qty = pos[0]['qty']
+    state.log('EXIT', symbol, 'SELL', qty, price, 'MANUAL', 'manual')
+    state.close_position(symbol)
+    _r2_push()
+    return jsonify(ok=True, symbol=symbol)
+
+
+@app.route('/api/manual-entry', methods=['POST'])
+def api_manual_entry():
+    """Manually take an entry signal and record it in the journal."""
+    if not _admin_ok(request):
+        return jsonify(error='unauthorized'), 401
+    data = request.get_json(silent=True) or {}
+    symbol = (data.get('symbol') or '').upper().strip()
+    price = float(data.get('price') or 0)
+    qty = int(data.get('qty') or 0)
+    if not symbol or price <= 0 or qty < 1:
+        return jsonify(error='symbol, price and qty required'), 400
+    held = {p['symbol'] for p in state.open_positions()}
+    if symbol in held:
+        return jsonify(error=f'{symbol} already open'), 409
+    today = str(datetime.date.today())
+    state.log('ENTRY', symbol, 'BUY', qty, price, 'MANUAL', 'manual')
+    state.add_position(symbol, qty, price, today, '', 'MANUAL')
+    _r2_push()
+    return jsonify(ok=True, symbol=symbol)
+
+
 @app.route('/health')
 def health():
     from mrv5 import results
