@@ -200,7 +200,7 @@ function renderPo(d){
  if(d.error){el('poBody').innerHTML=`<div class="empty"><b>Not available.</b> ${d.error}</div>`;return}
  const anyLive=d.positions.some(p=>p.live);
  let h='<div class="toolbar"><button class="btn go" onclick="adminAction(\'/api/trigger/live\',\'Live trading\')">▶ Run live trading</button>'+
- `<span class="dim">Recomputes the plan & applies paper entries/exits (~1–2 min); Positions refresh when done. ${anyLive?'<span class="livedot"></span>live prices via Dhan · 30s':'prices auto-refresh every 30s'}</span></div>`;
+ `<span class="dim">Recomputes the plan & applies paper entries/exits (~1–2 min); Positions refresh when done. ${anyLive?'<span class="livedot"></span>live prices via Dhan · 10s':'prices auto-refresh every 10s'}</span></div>`;
  h+=`<div class="grid">
  <div><div class="l">Open positions</div><div class="v">${d.positions.length}</div><div class="s">${d.free_slots} slots free</div></div>
  <div><div class="l">New signals today</div><div class="v ${d.signals.length?'up':''}">${d.signals.length}</div><div class="s">${d.signals.filter(s=>s.would_take).length} would be taken</div></div>
@@ -274,6 +274,6 @@ async function boot(){
  fetch('/api/portfolio').then(r=>r.json()).then(renderPf).catch(e=>el('pfBody').innerHTML='<div class="empty">'+e+'</div>');
 }
 boot();
-setInterval(()=>fetch('/api/positions').then(r=>r.json()).then(renderPo).catch(()=>{}),30000);
+setInterval(()=>fetch('/api/positions').then(r=>r.json()).then(renderPo).catch(()=>{}),10000);
 setInterval(()=>fetch('/api/portfolio').then(r=>r.json()).then(renderPf).catch(()=>{}),60000);
 </script></body></html>

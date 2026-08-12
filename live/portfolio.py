@@ -11,10 +11,41 @@ def _last_close(sym):
     if d is None or len(d) == 0: return None, None
     return float(d.Close.iloc[-1]), str(d.index[-1].date())
 
-# live-quote cache: avoid hammering Dhan on every 30s poll, and back off for
+# live-quote cache: avoid hammering Dhan on every 10s poll, and back off for
 # 5 min after a failure (e.g. expired token) so it never slows the response.
 _LTP = {'t': 0.0, 'px': {}, 'cooldown_until': 0.0}
 _IDMAP = None
+
+# Yahoo Finance delayed-quote cache (NSE, ~15-min delay). Refreshed every 5 min.
+_YF = {'t': 0.0, 'px': {}}
+
+
+def yahoo_quotes(symbols):
+    """15-min-delayed NSE prices from Yahoo Finance. Used as fallback when the
+    Dhan token is expired. Returns {} on any error so callers still fall back to EOD."""
+    if not symbols:
+        return {}
+    now = time.time()
+    if now - _YF['t'] < 300 and _YF['px']:
+        return {s: _YF['px'][s] for s in symbols if s in _YF['px']}
+    try:
+        import yfinance as yf
+        tickers = [s.upper() + '.NS' for s in symbols]
+        data = yf.download(tickers, period='1d', interval='1m',
+                           progress=False, auto_adjust=True, threads=False)
+        px = {}
+        if not data.empty:
+            closes = data['Close'] if 'Close' in data.columns else data.xs('Close', axis=1, level=0)
+            last = closes.iloc[-1]
+            for s, t in zip(symbols, tickers):
+                v = last.get(t) if hasattr(last, 'get') else (last[t] if t in last.index else None)
+                if v is not None and not (isinstance(v, float) and v != v):  # skip NaN
+                    px[s] = float(v)
+        _YF.update(t=now, px=px)
+        return {s: px[s] for s in symbols if s in px}
+    except Exception as e:
+        print(f"yahoo_quotes error: {str(e)[:120]}", flush=True)
+        return {}
 
 def _security_ids():
     """Small precomputed {symbol: securityId} map (universe). Loaded once. NEVER
@@ -42,7 +73,7 @@ def live_quotes(symbols):
     now = time.time()
     if now < _LTP['cooldown_until']:
         return {}
-    if now - _LTP['t'] < 25 and _LTP['px']:
+    if now - _LTP['t'] < 8 and _LTP['px']:
         return _LTP['px']
     idmap = _security_ids()
     id_to_sym = {idmap[s.lower()]: s for s in symbols if s.lower() in idmap}
@@ -55,8 +86,8 @@ def live_quotes(symbols):
         return px
     except Exception as e:
         _LTP.update(cooldown_until=now + 300, px={})
-        print(f"live quotes unavailable (falling back to EOD): {str(e)[:120]}", flush=True)
-        return {}
+        print(f"Dhan unavailable, trying Yahoo Finance (15-min delay): {str(e)[:80]}", flush=True)
+        return yahoo_quotes(symbols)
 
 def open_positions():
     """Open book with live marks and the current signal state of each holding."""
