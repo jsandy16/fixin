@@ -339,6 +339,7 @@ def api_paper_open():
 @app.route('/api/manual-close', methods=['POST'])
 def api_manual_close():
     """Manually close an open position and record the exit in the journal."""
+    from live import state
     if not _admin_ok(request):
         return jsonify(error='unauthorized'), 401
     data = request.get_json(silent=True) or {}
@@ -359,6 +360,7 @@ def api_manual_close():
 @app.route('/api/manual-entry', methods=['POST'])
 def api_manual_entry():
     """Manually take an entry signal and record it in the journal."""
+    from live import state
     if not _admin_ok(request):
         return jsonify(error='unauthorized'), 401
     data = request.get_json(silent=True) or {}
